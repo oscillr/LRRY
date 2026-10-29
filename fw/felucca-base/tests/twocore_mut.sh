@@ -23,11 +23,13 @@ mut() {   # name, file, sed expression
 }
 mut ORIGINAL firmware/src/twocore_run.c -
 mut NOWAIT firmware/src/twocore_run.c 's/^    tcr\.got = 1;$/    tcr.got = 1;\n    if (j) { tcr_add_acc(out, outR, n); tcr.open = 0; return; }   \/\/ MUTANT: core 0 adds core 1 sums without waiting for done/'
-mut DOUBLE firmware/src/voice.c 's/lrry_render_range\(ti, 0, LRRY_C1_FIRST, out, outR, n\);/lrry_render_range(ti, 0, LRRY_C1_FIRST + 1u, out, outR, n);   \/\/ MUTANT: voice 4 on both cores/'
+mut DOUBLE firmware/src/voice.c 's/lrry_render_set\(ti, ~\(c1 \| open\), out, outR, n\);/lrry_render_set(ti, ~(((c1 \& (c1 - 1u))) | open), out, outR, n);   \/\/ MUTANT: the lowest voice of core 1 is played by core 0 too/'
+mut MISSING firmware/src/voice.c 's/lrry_render_set\(ti, ~\(c1 \| open\), out, outR, n\);/lrry_render_set(ti, ~(c1 | open | 1u), out, outR, n);   \/\/ MUTANT: voice 0 is played by neither core when it is core 0 s/'
 mut STALE firmware/src/twocore_run.c 's/^    tc_ctx\.pp = lrry_pp\[ti\];.*$/    { static int once; if (!once) { tc_ctx.pp = lrry_pp[ti]; once = 1; } }   \/\/ MUTANT: the patch copy is not refreshed/'
 mut SHARED firmware/src/twocore_run.c 's/&tc_ctx\.m\[i\], tc_acc\[0\], tc_acc\[1\], CTL\);/\&tc_ctx.m[i], pscr[0].buf, pscr[0].bufR, CTL);   \/\/ MUTANT: core 1 adds into core 0 block/'
-mut SHARED_STATE firmware/src/twocore_run.c 's/&lrry_vs\[0\]\[LRRY_C1_FIRST \+ i\]/\&lrry_vs[0][i]/'
-mut PEND_OFF firmware/src/voice.c 's/if \(vi >= LRRY_C1_FIRST && tcr_open_now\(\)\) \{/if (0) {/'
+mut SHARED_STATE firmware/src/twocore_run.c 's/&lrry_vs\[0\]\[tc_ctx\.id\[i\]\]/\&lrry_vs[0][i]/'
+mut PEND_OFF firmware/src/voice.c 's/if \(\(tcr_open_set\(\) >> vi\) & 1u\) \{/if (0) {/'
+mut SPLIT_NOT_SOUNDING firmware/src/voice.c 's/^    return c1;$/    return c1 | (c1 ? 0x80u : 0u);   \/\/ MUTANT: a voice that does not sound is handed over/'
 mut FADE_OFF firmware/src/twocore_run.c 's/tcr\.fade2 = 1;/tcr.fade2 = 0;/'
 mut VLATE_RUN firmware/src/twocore_run.c 's/#define TCR_VLATE_RUN 0u/#define TCR_VLATE_RUN 1u/'
 mut VWIN_ON firmware/src/twocore_run.c 's/#define TCR_VWIN_K 0u/#define TCR_VWIN_K 8u/'

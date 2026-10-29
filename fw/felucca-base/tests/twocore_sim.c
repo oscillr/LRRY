@@ -2,7 +2,7 @@
 /* L/RRY phase 4.3b: HOST-THREAD SIMULATION of the two-core split BY VOICE, written to the unit's protocol (firmware/src/twocore.{h,c}: separate 32-bit words, a sequence number, core 1
  * decides who plays a job) with the real code on both sides. A model of the PROTOCOL, the DATA SEPARATION and the runner's decisions, not of the device's timing.
  *   core 1 (a pthread)        the real tc_c1_step loop (what hal/fm1_core1.h runs in RAM), with the computer hal (tests/twocore_hal_host.h: acquire / release atomics, load and store
- *                             hooks for the fault injection, a simulated clock, a start hook); its job is the real tc_job_run (twocore_run.c: voices 4..7 into core 1's own accumulator
+ *                             hooks for the fault injection, a simulated clock, a start hook); its job is the real tc_job_run (twocore_run.c: the job's voices into core 1's own accumulator
  *                             from the block copy of the patch), wrapped by sim_job (delays, the ownership audit)
  *   core 0 (the main thread)  the firmware's own mix_block (fx.c) with DUELL_TWOCORE on: the real runner (tcr_begin, then in track_render lrry_render_stage: tcr_voices_post with the deadline and
  *                             tc_post, voices 0..3, tcr_voices_collect: the wait, the take, the three cases, the pause), the part's mix, gather, sends, master. A half is 4 blocks of 32
@@ -10,28 +10,28 @@
  * The clock is simulated: it stands still unless a delay is running (then every 4th read of core 0 moves it a tick), so a healthy core 1 is never late because the machine was busy; the harness
  * sets it to the half's start at every half. A delay of core 1 is "until the clock passes T" (T from the runner's deadline of that job), so every late case happens in the block it is aimed at.
  * Each run is one scene of tests/lrry_scn.h (7 of them, 2000 blocks) in a child process with ONE injected fault. The reference is the same firmware with core 1 never started (tc_boot not armed:
- * "unarmed", core 0 plays all eight voices); its output must equal every other run's SAMPLE FOR SAMPLE (the samples are kept and compared with memcmp, not hashed) except the runs that make voices 4..7 silent
+ * "unarmed", core 0 plays all eight voices); its output must equal every other run's SAMPLE FOR SAMPLE (the samples are kept and compared with memcmp, not hashed) except the runs that make the job's voices silent
  * on purpose. tests/lrry_split_test.c is the one-core program with no second-core code at all; tests/lrry_split.sh checks that the hashes printed by both agree.
  *   none          the hand-over at full speed with the ownership audit: core 1 waits until core 0 is in its wait, then hashes everything core 0 owns (track, block scratch, accumulators, the patch,
- *                 voices 0..3's state and COMB lines, the control block lrj) around the real job, and everything core 1 owns (voices 4..7's state and COMB lines) against the hash taken at the post
+ *                 voices 0..3's state and COMB lines, the control block lrj) around the real job, and everything core 1 owns (the job's voices's state and COMB lines) against the hash taken at the post
  *   conc          the same without the audit gate: both cores really run at once                                         output = the reference
  *   torn1         core 1 reads a new job with the OLD arg / chk once: re-read, run, counted                              same
- *   tornp         ... persistently: refused (BADJOB), a strike, core 0 plays voices 4..7 from then on                    same
+ *   tornp         ... persistently: refused (BADJOB), a strike, core 0 plays the job's voices from then on                    same
  *   late_pre      core 1 sleeps before it looks: take, yld, core 0 plays them ("late")                                  same
  *   late_post     core 1 sleeps after its claim, done within its wait limit ("very late", single blocks: nothing pauses) same
  *   voff          many very late blocks, 4 in a row and 8 within 2 s among them, BENCHT4 defaults: nothing pauses         same
  *   noans         core 1 sleeps before it looks until past the 100 us answer time of the take, then yields: "no answer", a fault pause, core 0 plays them   same
- *   vlong         core 1 sleeps after its claim until 60 ticks past the WAIT LIMIT: core 0 stops waiting AT the limit, voices 4..7 silent, a fault pause   counters only
+ *   vlong         core 1 sleeps after its claim until 60 ticks past the WAIT LIMIT: core 0 stops waiting AT the limit, the job's voices silent, a fault pause   counters only
  *   late_run      a run of late blocks pauses the jobs, they resume                                                      same
  *   badchk        the store hook corrupts the check value: refused, a strike                                              same
  *   stale         the load hook returns the older number for done: not done, the deadline path                           same
  *   ahead         a done word ahead (BADWORD)                                                                              same
  *   badsnap       the block copy core 1 reads does not fit its hash: refused like a wrong check                           same
- *   hang_pre      core 1 hangs before it looks at a job: voices 4..7 silent until tc_watch stops it (HANG, 100 ms), then core 0 plays them   = a one-core run that skips exactly those blocks
+ *   hang_pre      core 1 hangs before it looks at a job: the job's voices silent until tc_watch stops it (HANG, 100 ms), then core 0 plays them   = a one-core run that skips exactly those blocks
  *   hang_post     core 1 hangs after its claim: the same, its voices fade out when core 0 takes over                    = the same with the fade
  *   park          a flash park in the middle of play: no click, output equal, counted
  *   park_stuck    a flash park with core 1 stuck: FLASH after 20 ms simulated                                            = as hang_post
- *   silent_late   core 1 finishes a job after its half: voices 4..7 silent, then core 0 plays them                       counters only (the late job renders later state)
+ *   silent_late   core 1 finishes a job after its half: the job's voices silent, then core 0 plays them                       counters only (the late job renders later state)
  *   unarmed / noanswer   the firmware stays on one core: output = the reference; the record says why
  *   shared        self-check: core 1 writing one patch value of core 0's (the OSC 1 level) changes the output and the audit sees the write
  * Mutants (the four of host/lrry_split.h and the ones DUELL's twocore_mut had): tests/twocore_mut.sh builds copies of the firmware with one rule broken, this program must FAIL on each.
@@ -41,7 +41,7 @@
 #define TC_JOB_RUN sim_job
 #include <stdint.h>
 static void sim_job(uint32_t arg);
-#define LRRY_MASK_HOOK(ti, mp) ref_mask_hook(ti, mp)    /* (the reference run silences voices 4..7 in the blocks the fault run lost) */
+#define LRRY_MASK_HOOK(ti, mp) ref_mask_hook(ti, mp)    /* (the reference run silences the job's voices in the blocks the fault run lost) */
 static void ref_mask_hook(uint32_t ti, uint32_t *mask);
 #define main hostsim_main
 #include "hostsim.c"
@@ -81,8 +81,11 @@ typedef struct {
     uint32_t own_checks, own_writes, own_timeouts, c1own_checks, c1own_writes, c1open_writes;   /* the ownership audit (sim_job): jobs audited, jobs that changed core 0's state, gate timeouts; core 1's state changed between the post and the job's start */
     uint32_t nott;                                      /* posted jobs of blocks where core 0 could no longer take the voices back in time (item 90, tcr.nott: no take-over) */
     uint32_t posted;                                    /* jobs posted */
+    uint32_t c1hist[9], lohist[9], moved, stayed;       /* voices on core 1 and on core 0 in the blocks with a job (histograms); voices that sounded in two blocks in a row and changed core / kept it */
     uint64_t hash;
-    uint8_t skip[MAXB];                                 /* voices 4..7 were silent in this block (tcr.skip2) */
+    uint8_t skip[MAXB];                                 /* the voices that were silent in this block (tcr.sil, a mask) */
+    uint32_t hang_blk;                                  /* the first block that saw core 1 hung (0xFFFFFFFF: none) */
+    uint32_t fade_mask;                                 /* the voices tcr_begin faded out after a core 1 that stopped in a claimed job */
     uint64_t dl_sum[TCR_BLOCKS];                        /* the deadlines of the posted jobs, ticks after the half's start, summed per block of the half */
     uint32_t dl_n[TCR_BLOCKS];
     uint64_t lim_sum[TCR_BLOCKS];
@@ -141,8 +144,11 @@ static void wait_release(void)
     time_adj(-1);
 }
 static volatile uint32_t hang_on;                       /* core 1 is hung (the heartbeat guard of sim_block stops helping then) */
+static uint64_t c1own_hash(uint32_t c1);
+static volatile uint64_t c1own_at_hang;                 /* the hung job's voices as they were when core 1 stopped (it writes nothing from then on) */
 static void hang(void)                                  /* hung: until core 0 stops it (or the run ends) */
 {
+    c1own_at_hang = c1own_hash(tc_ctx.mask);
     __atomic_store_n(&hang_on, 1u, __ATOMIC_RELEASE);
     time_adj(1);
     while (c1_live())
@@ -173,7 +179,7 @@ static int pl_hang_pre(uint32_t j) { return fault == F_HANG_PRE && j == 150u; }
 static int pl_hang_post(uint32_t j) { return (fault == F_HANG_POST || fault == F_PARK_STUCK) && j == 150u; }
 static int pl_silent(uint32_t j) { return fault == F_SILENT_LATE && j == 150u; }
 
-static uint64_t c1own_hash(void);
+static uint64_t c1own_hash(uint32_t c1);
 static volatile uint64_t c1own_at_post;
 /* every load of a shared word, core 1's and core 0's (the hal's hook) */
 static uint32_t ld_hook(const uint32_t *p, uint32_t v)
@@ -221,7 +227,7 @@ static uint32_t ld_hook(const uint32_t *p, uint32_t v)
 static uint32_t st_hook(uint32_t *p, uint32_t v)
 {
     if (!tc_host_is_c1 && p == &tc_mb.job && fault == F_NONE)
-        c1own_at_post = c1own_hash();               /* core 0 posts: core 1's state as it is at that moment */
+        c1own_at_post = c1own_hash(tc_ctx.mask);               /* core 0 posts: core 1's state as it is at that moment */
     if (!tc_host_is_c1 && p == &tc_mb.chk && ((fault == F_BADCHK && tc.job + 1u == 200u) || (fault == F_TRIMSTOP && tc.job + 1u == trim_job)))
         return v ^ 0x40u;                               /* core 0's check value written wrong */
     return v;
@@ -231,8 +237,8 @@ static uint32_t st_hook(uint32_t *p, uint32_t v)
 /* ------------------------------------------------------------ the ownership audit --- */
 /* A shared write put back by mistake is a race in the threaded run: it shows only if both cores run that spot at the same moment, so it is caught one run in a few. This makes it show every time:
  * in the run `none` core 1 waits until core 0 is in its wait for done (voices 0..3 are rendered and core 0 touches no state until it reads done), hashes everything core 0 owns, runs the real job,
- * and hashes again. The job may write only core 1's own (tc_acc, voices 4..7's audio state and COMB lines): any change in core 0's is a write into it. And the other way: core 1's own state
- * (voices 4..7's audio state and COMB lines) is hashed by core 0 at the post and by core 1 at its start (core 0 is in its wait by then): core 0 wrote none of it while the job was open. */
+ * and hashes again. The job may write only core 1's own (tc_acc, the job's voices's audio state and COMB lines): any change in core 0's is a write into it. And the other way: core 1's own state
+ * (the job's voices's audio state and COMB lines) is hashed by core 0 at the post and by core 1 at its start (core 0 is in its wait by then): core 0 wrote none of it while the job was open. */
 static void hash_bytes(uint64_t *h, const void *p, size_t n)
 {
     const uint8_t *q = (const uint8_t *)p;
@@ -240,25 +246,32 @@ static void hash_bytes(uint64_t *h, const void *p, size_t n)
     for (i = 0; i < n; i++)
         *h = (*h ^ q[i]) * 0x100000001B3ull;
 }
-static uint64_t own_hash(void)                          /* core 0's */
+static void hash_voices(uint64_t *h, uint32_t set)  /* the audio state and COMB lines of the voices in set */
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if ((set >> i) & 1u) {
+            hash_bytes(h, &lrry_vs[0][i], sizeof lrry_vs[0][i]);
+            hash_bytes(h, LRRY_COMB_LINE(0, i, 0), 2u * LRRY_COMB_LEN * sizeof(int16_t));
+        }
+}
+static uint64_t own_hash(uint32_t c1)                   /* core 0's: everything but the job's voices */
 {
     uint64_t h = 0xCBF29CE484222325ull;
     hash_bytes(&h, &trk[0], sizeof trk[0]);
     hash_bytes(&h, &pscr[0], sizeof pscr[0]);
     hash_bytes(&h, &pacc[0], sizeof pacc[0]);
     hash_bytes(&h, &lrry_pp[0], sizeof lrry_pp[0]);
-    hash_bytes(&h, &lrry_vs[0][0], LRRY_C1_FIRST * sizeof lrry_vs[0][0]);
+    hash_voices(&h, ~c1 & ((1u << NVOICE) - 1u));
     hash_bytes(&h, &lrj, sizeof lrj);
-    hash_bytes(&h, LRRY_COMB_LINE(0, 0, 0), LRRY_C1_FIRST * 2u * LRRY_COMB_LEN * sizeof(int16_t));
     hash_bytes(&h, mix_l, sizeof mix_l);
     hash_bytes(&h, mix_r, sizeof mix_r);
     return h;
 }
-static uint64_t c1own_hash(void)                        /* core 1's */
+static uint64_t c1own_hash(uint32_t c1)                 /* core 1's: the job's voices */
 {
     uint64_t h = 0xCBF29CE484222325ull;
-    hash_bytes(&h, &lrry_vs[0][LRRY_C1_FIRST], LRRY_C1_N * sizeof lrry_vs[0][0]);
-    hash_bytes(&h, LRRY_COMB_LINE(0, LRRY_C1_FIRST, 0), LRRY_C1_N * 2u * LRRY_COMB_LEN * sizeof(int16_t));
+    hash_voices(&h, c1 & ((1u << NVOICE) - 1u));
     return h;
 }
 /* c1own_at_post: core 0's hash of core 1's state, taken at the post (the store of the job word) */
@@ -280,9 +293,9 @@ static uint32_t c1_jobs;
 static void sim_job(uint32_t arg)
 {
     uint32_t j = c1_job;
-    uint64_t ho = c1own_hash();                         /* core 1's state when it claimed the job; core 0 must not touch it while the job is open, however long core 1 sleeps (the delays below) */
+    uint64_t ho = c1own_hash(tc_ctx.mask);                         /* core 1's state when it claimed the job; core 0 must not touch it while the job is open, however long core 1 sleeps (the delays below) */
     if (pl_vlong(j))
-        wait_clock(tcr.lim + 60u);                      /* slower than core 0 may wait: it stops at the wait limit, voices 4..7 silent for the block */
+        wait_clock(tcr.lim + 60u);                      /* slower than core 0 may wait: it stops at the wait limit, the job's voices silent for the block */
     else if (pl_late_post(j))
         wait_clock(tcr.dl + 1000u);                     /* slow in the middle: core 0 takes it back, then waits for done */
     if (pl_silent(j))
@@ -293,22 +306,22 @@ static void sim_job(uint32_t arg)
     }
     if (!c1_live())
         return;
-    if (c1own_hash() != ho)
+    if (c1own_hash(tc_ctx.mask) != ho)
         c1open_writes++;
     if (fault == F_NONE) {
         uint64_t a0 = 0;
         int gated = own_gate(j);
         if (gated) {
-            a0 = own_hash();
+            a0 = own_hash(tc_ctx.mask);
             c1own_checks++;
-            if (c1own_hash() != c1own_at_post)
+            if (c1own_hash(tc_ctx.mask) != c1own_at_post)
                 c1own_writes++;
         } else
             own_timeouts++;
         tc_job_run(arg);
         if (gated) {
             own_checks++;
-            if (own_hash() != a0)
+            if (own_hash(tc_ctx.mask) != a0)
                 own_writes++;
         }
     } else
@@ -351,20 +364,40 @@ static void record(const int32_t *out, uint32_t skip)
     nblk++;
 }
 
-/* the reference paths: core 1 never started. ref_skip != 0: the blocks it flags have voices 4..7 silent (the hung core 1's), and at block ref_fade core 1's voices fade out (tcr.fade2, as tcr_begin
+/* the reference paths: core 1 never started. ref_skip != 0: the blocks it flags have the job's voices silent (the hung core 1's), and at block ref_fade core 1's voices fade out (tcr.fade2, as tcr_begin
  * finds it after a core 1 that stopped in a claimed job) */
-static const uint8_t *ref_skip;
-static uint32_t ref_fade = 0xFFFFFFFFu;
+static const uint8_t *ref_skip;                         /* per block: the voices (a mask) that were silent in the fault run */
+static uint32_t ref_fade = 0xFFFFFFFFu, ref_fade_mask;
 static void ref_mask_hook(uint32_t ti, uint32_t *mask)
 {
     (void)ti;
-    if (ref_skip && nblk < MAXB && ref_skip[nblk])
-        *mask &= (1u << LRRY_C1_FIRST) - 1u;
+    if (ref_skip && nblk < MAXB)
+        *mask &= ~(uint32_t)ref_skip[nblk];
+}
+/* While a job is hung, the harness lets every note go and, 60 blocks later, plays 8 new ones: voices of the hung job that have ended are struck again while the job is still open (their audio-state
+ * clear must wait: voice.c lrry_pend). hang_blk is the first block that sees the hang; the reference run replays the same notes at the same blocks (ref_hang_blk) */
+static uint32_t hang_blk = 0xFFFFFFFFu, ref_hang_blk = 0xFFFFFFFFu;
+static void inject_notes(uint32_t b, uint32_t hb)
+{
+    uint32_t k;
+    if (hb == 0xFFFFFFFFu)
+        return;
+    if (b == hb + 1u) {
+        trk[0].p[P_REL] = 0;                            /* (a short release, so the voices have ended when the new notes come) */
+        for (k = 0; k < 128u; k++)
+            trk_note_off(&trk[0], k);
+    }
+    if (b == hb + 60u)
+        for (k = 0; k < 8u; k++)
+            trk_note_on(&trk[0], 45u + 4u * k, 100);
 }
 static void ref_block(int32_t *out, uint32_t n)
 {
-    if (nblk == ref_fade)
+    inject_notes(nblk, ref_hang_blk);
+    if (nblk == ref_fade) {
         tcr.fade2 = 1;
+        tcr.fade_mask = (uint8_t)ref_fade_mask;
+    }
     mix_block(out, n);
     record(out, ref_skip ? ref_skip[nblk] : 0);
 }
@@ -374,6 +407,9 @@ static uint32_t park_t0, park_t1;
 static void sim_block(int32_t *out, uint32_t n)
 {
     uint32_t b = nblk;
+    if (hang_blk == 0xFFFFFFFFu && __atomic_load_n(&hang_on, __ATOMIC_ACQUIRE))
+        hang_blk = b;
+    inject_notes(b, hang_blk);
     if (b % TCR_BLOCKS == 0) {
         uint32_t h = b / TCR_BLOCKS, t = BASE_TICKS + h * TCR_HALF_TICKS + clk_jump;
         if (fault == F_VLONG && tcs.pauses > jumps && tcr.open) {   /* the late job is let go before the calm period passes (its clock figures stay those of one job) */
@@ -405,7 +441,7 @@ static void sim_block(int32_t *out, uint32_t n)
         tc_trim_poll();
         tc_half_begin(raw_ticks());
         if (fault == F_PARK && h == 60u)
-            tc_flash_park();                            /* the flash driver: this half plays voices 4..7 on core 0 */
+            tc_flash_park();                            /* the flash driver: this half plays the job's voices on core 0 */
         if (fault == F_PARK_STUCK && !parked && tcs.silent) {
             parked = 1;
             divsel = 1u;                                /* (20 ms of ticks in single steps) */
@@ -416,6 +452,8 @@ static void sim_block(int32_t *out, uint32_t n)
         }
     }
     mix_block(out, n);
+    if (__atomic_load_n(&hang_on, __ATOMIC_ACQUIRE) && tcr.open && c1own_hash(tcr.open_set) != c1own_at_hang)
+        c1open_writes++;                                /* core 0 wrote the audio state of a voice of the hung job while the job was open (a note on a voice that had ended, say) */
     if (tcr.job) {
         int32_t lo = (int32_t)(raw_ticks() - tcr.lim), eo = (int32_t)(raw_ticks() - (tcr.t0 + TCR_HALF_TICKS));   /* where core 0 is when it leaves the block's wait: never later than the limit, so never later than the half's end */
         R->lim_blocks++;
@@ -425,11 +463,21 @@ static void sim_block(int32_t *out, uint32_t n)
             R->lim_max_over = (uint32_t)lo;
         R->nott += tcr.nott != 0u;
         R->posted++;
+        R->c1hist[__builtin_popcount(tcr.c1set)]++;
+        R->lohist[__builtin_popcount(lrj.mask & ~(uint32_t)tcr.c1set)]++;
+        {
+            static uint32_t pm, pc;                         /* last job's voices and core-1 set */
+            uint32_t both = pm & lrj.mask;
+            R->moved += __builtin_popcount(both & (pc ^ tcr.c1set));
+            R->stayed += __builtin_popcount(both & ~(pc ^ tcr.c1set));
+            pm = lrj.mask;
+            pc = tcr.c1set;
+        }
         R->dl_sum[b % TCR_BLOCKS] += tcr.dl - tcr.t0;
         R->dl_n[b % TCR_BLOCKS]++;
         R->lim_sum[b % TCR_BLOCKS] += tcr.lim - tcr.t0;
     }
-    record(out, tcr.skip2);
+    record(out, tcr.sil);
 }
 
 /* ------------------------------------------------------------ a run --- */
@@ -453,6 +501,8 @@ static void fill_res(uint64_t h)
     R->c1own_writes = c1own_writes;
     R->c1open_writes = c1open_writes;
     R->nblk = nblk;
+    R->fade_mask = tcr.fade_mask;
+    R->hang_blk = hang_blk;
     R->park_us = (park_t1 - park_t0) / TC_TICKS_PER_US;
 }
 /* one run in a child process: kind -1 the reference (core 1 never started), -2 the reference with the blocks of ref_skip silent, else the injected fault */
@@ -594,7 +644,7 @@ int main(int argc, char **argv)
         expect(what, hr != 0 && ref.s.own == ref.nblk);
         printf("twocore: scene %u (%s): reference hash %016llx, %u blocks\n", s, SCN[s], (unsigned long long)hr, ref.nblk);
         for (f = 0; f < F_N; f++) {
-            int equal_ref = 0;                              /* (set after the run: the output must equal the reference whenever no block of voices 4..7 was dropped) */
+            int equal_ref = 0;                              /* (set after the run: the output must equal the reference whenever no block of the job's voices was dropped) */
             const tc_stat_t *c;
             uint32_t sum;
             if (audit && f != F_NONE && f != F_CONC)
@@ -608,7 +658,7 @@ int main(int argc, char **argv)
             run(s, (int)f, &r);
             c = &r.s;
             equal_ref = f != F_HANG_PRE && f != F_HANG_POST && f != F_PARK_STUCK && f != F_SILENT_LATE && f != F_SHARED && f != F_VLONG && c->silent == 0;
-            snprintf(what, sizeof what, "scene %u %s: core 0 changed nothing of core 1's state (voices 4..7, COMB lines) while a job was open, however late it was (%u jobs)", s, FNAME[f], r.c1open_writes);
+            snprintf(what, sizeof what, "scene %u %s: core 0 changed nothing of core 1's state (the job's voices, COMB lines) while a job was open, however late it was (%u jobs)", s, FNAME[f], r.c1open_writes);
             expect(what, r.c1open_writes == 0);
             printf("twocore:   %-11s blocks %4u in time %4u late %3u very late %3u silent %3u (waiting %3u) own %4u refused %u no answer %u | pauses %u (fault %u run %u window %u late %u) very late without pause %u resumes %u | rereads %u parks %u | "
                    "core 1 jobs %4u | no take-over %u | up %u strike %u record %u failed %u bad %u | %016llx\n",
@@ -617,6 +667,13 @@ int main(int argc, char **argv)
                    r.nott, r.up, r.strike, r.nv_last, r.failed, r.bad_w, (unsigned long long)r.hash);
             if (f == F_NONE) {
                 uint32_t k2;
+                printf("twocore:   split (jobs %u): voices on core 1:", r.posted);
+                for (k2 = 0; k2 <= 6u; k2++)
+                    printf(" %u:%u", k2, r.c1hist[k2]);
+                printf(" | on core 0:");
+                for (k2 = 0; k2 <= 8u; k2++)
+                    printf(" %u:%u", k2, r.lohist[k2]);
+                printf(" | voices that changed core %u, kept their core %u\n", r.moved, r.stayed);
                 printf("twocore:   deadlines (mean, microseconds after the half's start, of the posted jobs; the half is %u):", TCR_HALF_TICKS / TC_TICKS_PER_US);
                 for (k2 = 0; k2 < TCR_BLOCKS; k2++)
                     printf(" block %u: %u (%u jobs)", k2, r.dl_n[k2] ? (uint32_t)(r.dl_sum[k2] / r.dl_n[k2]) / TC_TICKS_PER_US : 0u, r.dl_n[k2]);
@@ -648,7 +705,7 @@ int main(int argc, char **argv)
                 expect(what, c->in_time >= 100u && r.c1_jobs >= c->in_time && c->in_time + c->own + c->wait == c->blocks);
                 snprintf(what, sizeof what, "scene %u none: core 1's job changed nothing of core 0's state (track, block scratch, accumulators, patch, voices 0..3, their COMB lines, the control block): %u of %u jobs wrote, %u gate timeouts", s, r.own_writes, r.own_checks, r.own_timeouts);
                 expect(what, r.own_writes == 0 && r.own_timeouts == 0 && r.own_checks >= c->in_time);
-                snprintf(what, sizeof what, "scene %u none: core 0 changed nothing of core 1's state (voices 4..7, their COMB lines) between the post and the job's start: %u of %u jobs", s, r.c1own_writes, r.c1own_checks);
+                snprintf(what, sizeof what, "scene %u none: core 0 changed nothing of core 1's state (the job's voices, their COMB lines) between the post and the job's start: %u of %u jobs", s, r.c1own_writes, r.c1own_checks);
                 expect(what, r.c1own_writes == 0 && r.c1own_checks >= c->in_time);
                 break;
             case F_CONC:
@@ -660,7 +717,7 @@ int main(int argc, char **argv)
                 expect(what, r.reread > 0 && c->refused == 0 && !r.strike && r.bad_w == 0);
                 break;
             case F_TORNP:
-                snprintf(what, sizeof what, "scene %u tornp: refused, a strike (BADJOB), core 1 held, core 0 plays voices 4..7 from then on", s);
+                snprintf(what, sizeof what, "scene %u tornp: refused, a strike (BADJOB), core 1 held, core 0 plays the job's voices from then on", s);
                 expect(what, c->refused == 1 && r.failed == TCR_BADJOB && r.strike && !r.up && c->own > 0 && r.nv_last == TCR_BADJOB);
                 break;
             case F_LATE_PRE:
@@ -686,7 +743,7 @@ int main(int argc, char **argv)
                 expect(what, c->noanswer > 0 && c->pauses > 0 && c->pause_fault == c->pauses && c->vlate_ok == 0 && (r.nott || c->silent == 0) && !r.strike && r.up);
                 break;
             case F_VLONG:
-                snprintf(what, sizeof what, "scene %u vlong: a job that is not done by the wait limit makes voices 4..7 silent for the block (silent %u) and pauses the jobs as a fault (%u of %u pauses); core 0 left every wait at the limit (largest overrun %u ticks, %u of %u blocks over), none past the half's end (%u); no strike", s, c->silent, c->pause_fault, c->pauses, r.lim_max_over, r.lim_over, r.lim_blocks, r.end_over);
+                snprintf(what, sizeof what, "scene %u vlong: a job that is not done by the wait limit makes the job's voices silent for the block (silent %u) and pauses the jobs as a fault (%u of %u pauses); core 0 left every wait at the limit (largest overrun %u ticks, %u of %u blocks over), none past the half's end (%u); no strike", s, c->silent, c->pause_fault, c->pauses, r.lim_max_over, r.lim_over, r.lim_blocks, r.end_over);
                 expect(what, c->silent > 0 && c->pauses > 0 && c->pause_fault == c->pauses && c->vlate_ok == 0 && r.lim_over == 0 && r.end_over == 0 && !r.strike);
                 break;
             case F_LATE_RUN:
@@ -694,7 +751,7 @@ int main(int argc, char **argv)
                 expect(what, (c->late >= 4u || r.nott) && c->pauses > 0 && (r.nott || c->resumes + 1u >= c->pauses) && !r.strike && r.up);
                 break;
             case F_BADCHK:
-                snprintf(what, sizeof what, "scene %u badchk: refused, a strike (BADJOB), core 0 plays voices 4..7", s);
+                snprintf(what, sizeof what, "scene %u badchk: refused, a strike (BADJOB), core 0 plays the job's voices", s);
                 expect(what, c->refused == 1 && r.failed == TCR_BADJOB && r.strike && !r.up);
                 break;
             case F_STALE:
@@ -706,7 +763,7 @@ int main(int argc, char **argv)
                 expect(what, r.failed == TCR_BADWORD && r.strike && !r.up && c->refused == 1);
                 break;
             case F_BADSNAP:
-                snprintf(what, sizeof what, "scene %u badsnap: the block copy that fits no hash is refused, a strike (BADJOB), core 0 plays voices 4..7", s);
+                snprintf(what, sizeof what, "scene %u badsnap: the block copy that fits no hash is refused, a strike (BADJOB), core 0 plays the job's voices", s);
                 expect(what, c->refused == 1 && r.failed == TCR_BADJOB && r.strike && !r.up);   /* (core 0 may see bad_job before core 1 wrote bad: it is held at once) */
                 break;
             case F_HANG_PRE:
@@ -722,10 +779,9 @@ int main(int argc, char **argv)
                         last = i;
                         nsk++;
                     }
-                snprintf(what, sizeof what, "scene %u %s: core 1 stopped (%s), a strike, voices 4..7 silent in %u blocks (%u counted), then core 0 played them", s, FNAME[f],
+                snprintf(what, sizeof what, "scene %u %s: core 1 stopped (%s), a strike, the job's voices silent in %u blocks (%u counted), then core 0 played them", s, FNAME[f],
                          f == F_PARK_STUCK ? "FLASH" : "HANG", nsk, c->silent);
-                expect(what, nsk > 0 && nsk == c->silent && r.failed == (f == F_PARK_STUCK ? TCR_FLASH : TCR_HANG) && r.strike && !r.up && last + 1u < r.nblk && c->own > 0 &&
-                                 nsk == last - first + 1u);
+                expect(what, nsk > 0 && nsk == c->silent && r.failed == (f == F_PARK_STUCK ? TCR_FLASH : TCR_HANG) && r.strike && !r.up && last + 1u < r.nblk && c->own > 0);   /* (not contiguous: a block where none of the open job's voices sounds is not silent) */
                 for (i = 0; i < first * 2u * CTL; i++)
                     pre_ok &= r.out[i] == ref.out[i];
                 snprintf(what, sizeof what, "scene %u %s: the output equals the reference up to the hang (block %u)", s, FNAME[f], first);
@@ -733,8 +789,11 @@ int main(int argc, char **argv)
                 memcpy(sk, r.skip, sizeof sk);
                 ref_skip = sk;
                 ref_fade = f == F_HANG_PRE ? 0xFFFFFFFFu : last + 1u;
+                ref_fade_mask = r.fade_mask;
+                ref_hang_blk = r.hang_blk;
                 run(s, -2, ps);
                 ref_skip = 0;
+                ref_hang_blk = 0xFFFFFFFFu;
                 ref_fade = 0xFFFFFFFFu;
                 snprintf(what, sizeof what, "scene %u %s: the whole output equals the one-core run with exactly those blocks silent%s, every sample", s, FNAME[f], f == F_HANG_PRE ? "" : " (and the fade)");
                 if (expect(what, ps->hash == r.hash && !memcmp(ps->out, r.out, sizeof r.out)))
@@ -749,11 +808,11 @@ int main(int argc, char **argv)
                 break;
             }
             case F_PARK:
-                snprintf(what, sizeof what, "scene %u park: a flash park in the middle of play, counted (%u), voices 4..7 played by core 0 meanwhile (own %u), core 1 still up", s, r.parks, c->own);
+                snprintf(what, sizeof what, "scene %u park: a flash park in the middle of play, counted (%u), the job's voices played by core 0 meanwhile (own %u), core 1 still up", s, r.parks, c->own);
                 expect(what, r.parks == 1u && c->own >= 3u && r.up && !r.strike);
                 break;
             case F_SILENT_LATE:
-                snprintf(what, sizeof what, "scene %u silent_late: voices 4..7 silent in %u blocks, the jobs paused (%u) and resumed (%u), no strike", s, c->silent, c->pauses, c->resumes);
+                snprintf(what, sizeof what, "scene %u silent_late: the job's voices silent in %u blocks, the jobs paused (%u) and resumed (%u), no strike", s, c->silent, c->pauses, c->resumes);
                 expect(what, c->vlate > 0 && c->silent > 0 && c->pauses > 0 && c->pause_fault == c->pauses && !r.strike);
                 break;
             case F_UNARMED:

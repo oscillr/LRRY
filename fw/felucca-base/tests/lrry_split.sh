@@ -16,10 +16,11 @@ grep -o 'scene [0-9] ([a-z]*) hash [0-9a-f]*' $T/lrry_split.log | sed 's/ hash /
 grep -o 'scene [0-9] ([a-z]*): reference hash [0-9a-f]*' $T/twocore_sim.log | sed 's/: reference hash / /' > $T/h_sim.txt
 if cmp -s $T/h_one.txt $T/h_sim.txt && [ -s $T/h_one.txt ]; then echo "one-core program and the simulation's reference: $(wc -l < $T/h_one.txt) scene hashes equal"; else echo "FAIL: scene hashes differ"; diff $T/h_one.txt $T/h_sim.txt; fail=1; fi
 if [ -n "$1" ]; then
-  O=$1; cp tests/lrry_scn.h $O/tests/
-  sed -e '/the allocator: n notes/,/^    printf("lrry_split: %d checks/{/printf/!d}' tests/lrry_split_test.c > $O/tests/lrry_split_test.c
-  (cd $O && cc "${CF[@]}" -o $T/lrry_split_old tests/lrry_split_test.c -lm && $T/lrry_split_old | grep -o 'scene [0-9] ([a-z]*) hash [0-9a-f]*' | sed 's/ hash / /' > $T/h_old.txt)
-  if cmp -s $T/h_one.txt $T/h_old.txt; then echo "4.3a tree and this tree, one core: $(wc -l < $T/h_old.txt) scene hashes equal"; else echo "FAIL: 4.3a hashes differ"; diff $T/h_one.txt $T/h_old.txt; fail=1; fi
+  O=$1; cp tests/lrry_scn.h tests/lrry_split_test.c $O/tests/; rm -f $T/h_old.txt
+  if (cd $O && cc "${CF[@]}" -DLRRY_OLD_TREE=1 -o $T/lrry_split_old tests/lrry_split_test.c -lm); then
+    $T/lrry_split_old | grep -o 'scene [0-9] ([a-z]*) hash [0-9a-f]*' | sed 's/ hash / /' > $T/h_old.txt
+    if cmp -s $T/h_one.txt $T/h_old.txt; then echo "4.3a tree and this tree, one core: $(wc -l < $T/h_old.txt) scene hashes equal"; else echo "FAIL: 4.3a hashes differ"; diff $T/h_one.txt $T/h_old.txt; fail=1; fi
+  else echo "FAIL: the 4.3a tree's test does not compile"; fail=1; fi
 fi
 [ "$MUT" = 1 ] && { tests/twocore_mut.sh || fail=1; }
 exit $fail

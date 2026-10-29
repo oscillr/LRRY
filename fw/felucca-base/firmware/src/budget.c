@@ -372,8 +372,9 @@ static void budget_solve2(const bd_t *b, uint32_t *out, uint32_t two)
         fx[p] = r->on ? BD_U(r->ins + r->sat + r->eq + r->misc + r->base) : 0;
     }
 #if LRRY_ENGINE
-    if (two) {                                          /* L/RRY 4.3b, the two-core rule BY VOICE (an ESTIMATE, nothing of it measured on the unit). The part's k notes sit on both cores' voices (voice.c VSLOT: ceil(k / 2) on
-                                                         * core 0's voices 0..3, floor(k / 2) on core 1's 4..7). Core 0 plays: the globals, the part's fixed work, its ceil(k / 2) voices whole, and of the other floor(k / 2) the control
+    if (two) {                                          /* L/RRY 4.3b, the two-core rule BY VOICE (an ESTIMATE, nothing of it measured on the unit). The split is dynamic (voice.c lrry_split_choose picks the voices for core 1 every
+                                                         * block from what sounds), so the best case is taken: k sounding voices sit ceil(k / 2) on core 0, floor(k / 2) on core 1 (equal voices; the chooser does as well or better with unequal
+                                                         * ones). Core 0 plays: the globals, the part's fixed work, its ceil(k / 2) voices whole, and of the other floor(k / 2) the control
                                                          * work that stays on it (BD_LR_CTL_PCT of a voice) and the hand-over (BD_LR_HO0). Core 1 plays its floor(k / 2) voices (a voice less that control work) and BD_LR_HO1. Both loads must fit
                                                          * the limit. The one-core number (bnotes1) is untouched. */
         for (p = 0; p < BD_N; p++) {

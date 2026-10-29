@@ -20,12 +20,13 @@
 static lrry_pp_t lrry_pp[NLIVE];                        /* the part's values of this block (lrry_decode; read only while its voices render) */
 static lrry_vs_t lrry_vs[NLIVE][NVOICE];                /* one voice's state: written only while that voice renders (4.3b: voices 0-3 and 4-7 on two cores touch disjoint elements) */
 
-/* L/RRY phase 4.3b: the split BY VOICE. Voices 0..LRRY_C1_FIRST-1 are core 0's, LRRY_C1_FIRST..NVOICE-1 are core 1's (twocore_run.c). track_render does the control work of every voice on
- * core 0, in voice order, as before (envelope, glide, pitch, matrix, lrry_voice_ctl: it writes track_t, so it is never split) and leaves each voice's pair of numbers in lrj (what lrry_voice reads:
- * its lrry_vc_t and its vmod_t). The audio work, lrry_voice, is then done by lrry_render_stage: all eight on core 0 (one core, or core 1 down / late / paused), or voices 0-3 on core 0 and 4-7 on core 1.
- * The sum of the voices is integer addition, so it does not depend on the order or on which core added what: the two ways give the same samples. */
-#define LRRY_C1_FIRST (NVOICE / 2u)
-#define LRRY_C1_N (NVOICE - LRRY_C1_FIRST)
+/* L/RRY phase 4.3b: the split BY VOICE, DYNAMIC. track_render does the control work of every voice on core 0, in voice order, as before (envelope, glide, pitch, matrix, lrry_voice_ctl: it writes
+ * track_t, so it is never split) and leaves each voice's pair of numbers in lrj (what lrry_voice reads: its lrry_vc_t and its vmod_t). The audio work, lrry_voice, is then done by
+ * lrry_render_stage: all on core 0 (one core, or core 1 down / late / paused), or split in two sets for this block: the voices that sound are weighed (lrry_weights, an estimate of what each costs) and
+ * lrry_split_choose picks the set for core 1 that makes the two cores' loads most equal, keeping a voice where it was unless moving it pays (LRRY_SP.stick). Any voice may go to either core in any
+ * block: a voice's audio state (lrry_vs, its COMB lines) is touched by one core at a time, handed over with the job (acquire / release). The sum of the voices is integer addition, so it does not depend on
+ * the order or on which core added what: every split gives the same samples. */
+#define LRRY_C1_MAX 6u                                  /* the most voices one job carries (the job context holds this many) */
 typedef struct {
     lrry_vc_t vc[NVOICE];
     vmod_t m[NVOICE];
@@ -33,27 +34,19 @@ typedef struct {
 } lrry_job_t;
 static lrry_job_t lrj;                                  /* core 0's: written by track_render's loop, read by the render stage */
 #if LRRY_ENGINE
-/* The pairs of voices a part uses first: the allocator's slot j (0, 1, 2 ..) is voice VSLOT(j), so the slots alternate between core 0's voices (0..3) and core 1's (4..7): n notes put ceil(n / 2) voices on core 0 and
- * floor(n / 2) on core 1 whatever order they end in (the budget's two-core number counts on it). Slots 0..NVOICE-1 are all the voices, so with the full 8 nothing changes but the order. */
-#define VSLOT(j) ((uint32_t)((j) & 1u ? LRRY_C1_FIRST + ((j) >> 1) : (j) >> 1))
-#define VSINV(v) ((uint32_t)((v) >= LRRY_C1_FIRST ? 2u * ((v) - LRRY_C1_FIRST) + 1u : 2u * (v)))   /* voice -> slot */
-#else
-#define VSLOT(j) ((uint32_t)(j))
-#define VSINV(v) ((uint32_t)(v))
-#endif
-#if LRRY_ENGINE
 #if DUELL_TWOCORE
-/* twocore_run.c (included after this file): the hand-over of voices LRRY_C1_FIRST.. to core 1 */
-static uint32_t tcr_voices_post(uint32_t ti, uint32_t n);
+/* twocore_run.c (included after this file): the hand-over of a set of voices to core 1 */
+static uint32_t tcr_voices_post(uint32_t ti, uint32_t n, uint32_t c1set);   /* 1: the job was posted */
 static void tcr_voices_collect(uint32_t ti, int32_t *out, int32_t *outR, uint32_t n);
-static uint32_t tcr_open_now(void);
+static uint32_t tcr_open_set(void);                     /* the voices of a job that is open (core 1 may still write them), else 0 */
+static uint32_t tcr_go_now(void);                       /* a job may be posted this block */
 #endif
-/* a new voice's audio state is cleared at its note-on (voice_start). While core 1 may still be writing voices LRRY_C1_FIRST.. (a job that is open: it was late), that clear waits: lrry_pend_apply */
+/* a new voice's audio state is cleared at its note-on (voice_start). While core 1 may still be writing that voice (it is in a job that is open: the job was late), the clear waits: lrry_pend */
 static uint8_t lrry_pend[NLIVE], lrry_pend_note[NLIVE][NVOICE];
 static void lrry_state_new(uint32_t pp, uint32_t vi, uint32_t note)
 {
 #if DUELL_TWOCORE
-    if (vi >= LRRY_C1_FIRST && tcr_open_now()) {
+    if ((tcr_open_set() >> vi) & 1u) {
         lrry_pend[pp] |= (uint8_t)(1u << vi);
         lrry_pend_note[pp][vi] = (uint8_t)note;
         return;
@@ -61,6 +54,157 @@ static void lrry_state_new(uint32_t pp, uint32_t vi, uint32_t note)
 #endif
     lrry_pend[pp] &= (uint8_t)~(1u << vi);
     lrry_state_clear(&lrry_vs[pp][vi], note);
+}
+
+/* ---- the split's estimate and its choice. Tunable: the bench fine-tunes these (a runtime struct, so one build can try values). Units: host instructions a sample, the unit of budget.c's L/RRY rows.
+ * w_*: what a voice costs (the same rows as budget.c BD_LR_*, without its margin); ho0 / ho1: what a job costs core 0 (copy + hash) and core 1 (start latency + hash + clear), charged only when core 1 gets
+ * voices; stick: a voice is moved to the other core only if that lowers the longer core's load by more than this; max1: the most voices core 1 may get (<= LRRY_C1_MAX); min_total: with fewer sounding
+ * voices than this everything stays on core 0. */
+typedef struct {
+    uint16_t base, osc2, noise, ring, sub, ms, dirt, super_saw, model_x[8];
+    uint16_t fa12, fa24, fb_svf, fb_lad, fb_comb;
+    uint16_t ho0, ho1, stick;
+    uint8_t max1, min_total;
+} lrry_sp_t;
+static lrry_sp_t LRRY_SP = {
+    280, 100, 25, 70, 25, 20, 85, 45, {0, 0, 5, 20, 25, 0, 35, 5},
+    120, 345, 100, 345, 110,
+    40, 45, 0,
+    LRRY_C1_MAX, 2,
+};
+/* the cost of each voice of the mask, from the patch of the block and the voice's own cutoffs (filters that do not run cost nothing). w[i] for the voices in the mask */
+static void lrry_weights(const lrry_pp_t *P, const lrry_job_t *J, uint16_t *w)
+{
+    const lrry_sp_t *S = &LRRY_SP;
+    uint32_t com = S->base, i, o;
+    for (o = 0; o < 2u; o++) {
+        uint32_t k, c, on = o == 0u;
+        for (k = 0; k < 2u; k++)
+            for (c = 0; c < 2u; c++)
+                on |= o == 1u && P->tg[LS_O2][k][c] != 0;
+        if (o == 1u)
+            on |= P->lvq[1][0] != 0 || P->lvq[1][1] != 0;
+        if (!on)
+            continue;
+        com += o ? S->osc2 : 0u;
+        com += P->model[o] == LM_SUPER ? (uint32_t)P->sup_n[o] * S->super_saw : S->model_x[P->model[o] & 7u];
+    }
+    if (P->tg[LS_NOISE][0][0] | P->tg[LS_NOISE][0][1] | P->tg[LS_NOISE][1][0] | P->tg[LS_NOISE][1][1])
+        com += S->noise;
+    if (P->tg[LS_RING][0][0] | P->tg[LS_RING][0][1] | P->tg[LS_RING][1][0] | P->tg[LS_RING][1][1])
+        com += S->ring;
+    com += P->sub_g ? S->sub : 0u;
+    com += (P->d_type[0] ? S->dirt : 0u) + (P->d_type[1] ? S->dirt : 0u);
+    com += P->ms.identity ? 0u : S->ms;
+    for (i = 0; i < NVOICE; i++) {
+        uint32_t c = com;
+        if (!((J->mask >> i) & 1u))
+            continue;
+        if (J->vc[i].pos_a >= 0)
+            c += P->fa_p24 ? S->fa24 : S->fa12;
+        if (P->fb_kind != LB_OFF && J->vc[i].pos_b >= 0 && (P->fb_kind != LB_COMB || J->vc[i].comb_d > 0))
+            c += P->fb_kind == LB_LADDER ? S->fb_lad : P->fb_kind == LB_COMB ? S->fb_comb : S->fb_svf;
+        w[i] = (uint16_t)(c > 65535u ? 65535u : c);
+    }
+}
+static uint32_t lrry_load(uint32_t mask, uint32_t c1, const uint16_t *w, uint32_t *l0, uint32_t *l1)
+{
+    const lrry_sp_t *S = &LRRY_SP;
+    uint32_t i, a = 0, b = 0;
+    for (i = 0; i < NVOICE; i++)
+        if ((mask >> i) & 1u) {
+            if ((c1 >> i) & 1u)
+                b += w[i];
+            else
+                a += w[i];
+        }
+    if (c1) {
+        a += S->ho0;
+        b += S->ho1;
+    }
+    *l0 = a;
+    *l1 = b;
+    return a > b ? a : b;
+}
+/* The set of voices for core 1. Starts from last block's set (prev) cut to the voices that sound, then moves one voice, or swaps two, while that lowers the longer core's load by more than stick
+ * (a move that ties is not taken; the lowest voice number wins among equals). Nothing for core 1 if that is no better than everything on core 0, if fewer than min_total voices sound, or
+ * if core 1 would get more than max1. Pure: the same mask, weights and prev give the same set. */
+static uint32_t lrry_split_improve(uint32_t mask, const uint16_t *w, uint32_t c1)   /* moves and swaps while they pay */
+{
+    const lrry_sp_t *S = &LRRY_SP;
+    uint32_t it, i, j, l0, l1;
+    for (it = 0; it < 16u; it++) {
+        uint32_t best = lrry_load(mask, c1, w, &l0, &l1), bset = c1, cand, v, cur = best;
+        for (i = 0; i < NVOICE; i++) {
+            if (!((mask >> i) & 1u))
+                continue;
+            cand = c1 ^ (1u << i);                      /* move voice i to the other core */
+            if ((uint32_t)__builtin_popcount(cand) <= S->max1) {
+                v = lrry_load(mask, cand, w, &l0, &l1);
+                if (v < best) { best = v; bset = cand; }
+            }
+            for (j = i + 1u; j < NVOICE; j++) {
+                if (!((mask >> j) & 1u) || (((c1 >> i) ^ (c1 >> j)) & 1u) == 0u)
+                    continue;
+                cand = c1 ^ (1u << i) ^ (1u << j);      /* swap i and j (one on each core) */
+                v = lrry_load(mask, cand, w, &l0, &l1);
+                if (v < best) { best = v; bset = cand; }
+            }
+        }
+        if (bset == c1 || cur - best <= S->stick)
+            break;
+        c1 = bset;
+    }
+    return c1;
+}
+static uint32_t lrry_split_choose(uint32_t mask, const uint16_t *w, uint32_t prev)
+{
+    const lrry_sp_t *S = &LRRY_SP;
+    uint32_t c1, lpt = 0, l0, l1, all0, a, b, k, o[NVOICE], n = 0, i;
+    if ((uint32_t)__builtin_popcount(mask) < S->min_total)
+        return 0;
+    c1 = lrry_split_improve(mask, w, prev & mask);      /* from last block's set */
+    for (i = 0; i < NVOICE; i++)                        /* and from scratch: the dearest voice first, each to the core that is less loaded (longest processing time first) */
+        if ((mask >> i) & 1u) {
+            for (k = n++; k > 0 && w[o[k - 1u]] < w[i]; k--)
+                o[k] = o[k - 1u];
+            o[k] = i;
+        }
+    a = 0;                                              /* core 0's load so far; core 1 starts with its hand-over */
+    b = S->ho1;
+    for (k = 0; k < n; k++) {
+        if (a + S->ho0 <= b || (uint32_t)__builtin_popcount(lpt) >= S->max1)
+            a += w[o[k]];
+        else {
+            lpt |= 1u << o[k];
+            b += w[o[k]];
+        }
+    }
+    lpt = lrry_split_improve(mask, w, lpt);
+    if (lrry_load(mask, lpt, w, &l0, &l1) + S->stick < lrry_load(mask, c1, w, &l0, &l1))
+        c1 = lpt;                                       /* the fresh set wins only if it is better by more than stick: a voice keeps its core unless moving it pays */
+    lrry_load(mask, 0, w, &all0, &l1);
+    if (c1 && lrry_load(mask, c1, w, &l0, &l1) >= all0)
+        c1 = 0;
+    return c1;
+}
+static uint32_t lrry_prev_c1;                           /* last block's set for core 1 (the chooser keeps voices where they are) */
+/* the choice for this block. The chooser is a pure function and its own answer is a fixed point (lrry_split_choose(mask, w, answer) == answer: tests/lrry_split_test.c), so when the sounding voices and
+ * their weights are the same as at the last call the answer is the last answer and nothing is computed: a held chord costs a compare of 9 words a block */
+static uint32_t lrry_pick(uint32_t mask, const uint16_t *w)
+{
+    static uint32_t cmask = 0xFFFFFFFFu;
+    static uint16_t cw[NVOICE];
+    uint32_t i, same = mask == cmask;
+    for (i = 0; i < NVOICE && same; i++)
+        same = !((mask >> i) & 1u) || cw[i] == w[i];
+    if (!same) {
+        lrry_prev_c1 = lrry_split_choose(mask, w, lrry_prev_c1);
+        cmask = mask;
+        for (i = 0; i < NVOICE; i++)
+            cw[i] = ((mask >> i) & 1u) ? w[i] : 0u;
+    }
+    return lrry_prev_c1;
 }
 #endif
 
@@ -357,8 +501,8 @@ static void voice_trim(track_t *t)
         return;
     np = trk_nvoice(t);
     for (i = np; i < NVOICE; i++)
-        if (t->v[VSLOT(i)].active && t->v[VSLOT(i)].stage != 4u)
-            voice_kill(&t->v[VSLOT(i)]);
+        if (t->v[i].active && t->v[i].stage != 4u)
+            voice_kill(&t->v[i]);
 }
 
 #if DUELL_TWOCORE
@@ -425,25 +569,25 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     int32_t bd = 0x7FFFFFFF;
     voice_trim(t);
     for (i = 0; i < np; i++) {
-        if (t->v[VSLOT(i)].active && t->v[VSLOT(i)].note == note)
-            return voice_reuse(t, &t->v[VSLOT(i)]);
-        nfree += !t->v[VSLOT(i)].active;
+        if (t->v[i].active && t->v[i].note == note)
+            return voice_reuse(t, &t->v[i]);
+        nfree += !t->v[i].active;
     }
     if (nfree && voices_busy() >= VPOOL) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, 0, &vp);
-        if (vp == t && k < NVOICE && VSINV(k) < np)
+        if (k < np && vp == t)
             return &t->v[k];                            /* our own: restart it in place (no click) */
         if (k < NVOICE)
             voice_kill(&vp->v[k]);
     }
     if (t->p[P_GLIDE]) {                                /* (T0227, owner: the stored VOICE ALLOCATION is ignored: ROTATE always; with GLIDE the free voice nearest in pitch, as ever) */
         for (i = 0; i < np; i++) {
-            int32_t d = t->v[VSLOT(i)].pitch_cur - (int32_t)note * 16;
-            if (t->v[VSLOT(i)].active)
+            int32_t d = t->v[i].pitch_cur - (int32_t)note * 16;
+            if (t->v[i].active)
                 continue;
             d = d < 0 ? -d : d;
-            if (!t->v[VSLOT(i)].pitch_cur)
+            if (!t->v[i].pitch_cur)
                 d = 0x7FFFFFF0;                          /* never played: last choice */
             if (d < bd) {
                 bd = d;
@@ -453,24 +597,24 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     } else {
         for (i = 0; i < np && best == np; i++) {
             uint32_t k = (t->rr + i) % np;
-            if (!t->v[VSLOT(k)].active)
+            if (!t->v[k].active)
                 best = k;
         }
         t->rr = (uint8_t)((best == np ? t->rr : best) + 1u) % np;
     }
     if (best < np)
-        return &t->v[VSLOT(best)];
+        return &t->v[best];
     for (i = 0; i < np; i++)                             /* the lowest held note is protected */
-        if (t->v[VSLOT(i)].gate && (low == np || t->v[VSLOT(i)].note < t->v[VSLOT(low)].note))
+        if (t->v[i].gate && (low == np || t->v[i].note < t->v[low].note))
             low = i;
     for (i = 0; i < np; i++)                             /* oldest released (not one fading out for another part) */
-        if (!t->v[VSLOT(i)].gate && t->v[VSLOT(i)].stage != 4u && (best == np || t->v[VSLOT(i)].age < t->v[VSLOT(best)].age))
+        if (!t->v[i].gate && t->v[i].stage != 4u && (best == np || t->v[i].age < t->v[best].age))
             best = i;
     if (best == np)
         for (i = 0; i < np; i++)                         /* oldest held, not the bass */
-            if (i != low && (best == np || t->v[VSLOT(i)].age < t->v[VSLOT(best)].age))
+            if (i != low && (best == np || t->v[i].age < t->v[best].age))
                 best = i;
-    return voice_reuse(t, &t->v[VSLOT(best == np ? 0 : best)]);
+    return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
 /* glide: RATE = a fixed speed, TIME = the same time for any interval */
@@ -602,7 +746,7 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
     uint32_t mode = (uint32_t)t->p[P_VOICE], nv = mode == V_UNISON ? trk_nvoice(t) : 1u, i;
     voice_trim(t);
     for (i = 0; i < nv; i++) {
-        voice_t *v = &t->v[VSLOT(i)];
+        voice_t *v = &t->v[i];
         int32_t k = 2 * (int32_t)i - (int32_t)(nv - 1u);   /* -7 .. 7 */
         if (nv > 1u && nv < NVOICE)
             k = k * (NVOICE - 1) / (int32_t)(nv - 1u);      /* fewer voices: the outer ones as wide */
@@ -751,7 +895,7 @@ static int vs_sounding(const track_t *t, uint32_t note)
 {
     uint32_t i, np = trk_nvoice(t);
     for (i = 0; i < np; i++)
-        if (t->v[VSLOT(i)].active && t->v[VSLOT(i)].stage != 4u && t->v[VSLOT(i)].note == note)
+        if (t->v[i].active && t->v[i].stage != 4u && t->v[i].note == note)
             return 1;
     return 0;
 }
@@ -1246,11 +1390,11 @@ static void tune_get(int32_t *u, int32_t *f)
 
 #if LRRY_ENGINE
 /* voices first..last-1 of the mask, from lrj: the kernel adds each pair to out / outR */
-static void lrry_render_range(uint32_t ti, uint32_t first, uint32_t last, int32_t *out, int32_t *outR, uint32_t n)
+static void lrry_render_set(uint32_t ti, uint32_t set, int32_t *out, int32_t *outR, uint32_t n)
 {
     uint32_t i;
-    for (i = first; i < last; i++)
-        if ((lrj.mask >> i) & 1u)
+    for (i = 0; i < NVOICE; i++)
+        if (((lrj.mask & set) >> i) & 1u)
             lrry_voice(&lrry_pp[ti], &lrj.vc[i], &lrry_vs[ti][i], &lrj.m[i], out, outR, n);
 }
 static void lrry_render_stage(uint32_t ti, int32_t *out, int32_t *outR, uint32_t n)
@@ -1259,18 +1403,36 @@ static void lrry_render_stage(uint32_t ti, int32_t *out, int32_t *outR, uint32_t
     LRRY_MASK_HOOK(ti, &lrj.mask);                      /* (a test may silence voices in chosen blocks; not defined in the firmware) */
 #endif
 #if DUELL_TWOCORE
-    uint32_t i;
-    if (lrry_pend[ti] && !tcr_open_now())
-        for (i = LRRY_C1_FIRST; i < NVOICE; i++)
-            if ((lrry_pend[ti] >> i) & 1u) {
+    uint32_t open = tcr_open_set(), c1 = 0, i;
+    if (lrry_pend[ti] & ~open)
+        for (i = 0; i < NVOICE; i++)
+            if (((lrry_pend[ti] & ~open) >> i) & 1u) {
                 lrry_pend[ti] &= (uint8_t)~(1u << i);
                 lrry_state_clear(&lrry_vs[ti][i], lrry_pend_note[ti][i]);
             }
-    tcr_voices_post(ti, n);                             /* core 1 gets voices 4..7 when it can */
-    lrry_render_range(ti, 0, LRRY_C1_FIRST, out, outR, n);
-    tcr_voices_collect(ti, out, outR, n);               /* its sums added, or core 0 plays them */
+    if (tcr_go_now()) {
+        uint16_t w[NVOICE];
+        lrry_weights(&lrry_pp[ti], &lrj, w);
+        c1 = lrry_pick(lrj.mask, w);
+#ifdef LRRY_SPLIT_PROBE
+        LRRY_SPLIT_PROBE(ti, lrj.mask, w, c1);
+#endif
+        if (c1 && !tcr_voices_post(ti, n, c1))
+            c1 = 0;                                     /* (the half is too far gone: core 0 plays everything) */
+    }
+    lrry_render_set(ti, ~(c1 | open), out, outR, n);    /* core 0's: every voice that sounds, but core 1's and the ones of a job still open */
+    tcr_voices_collect(ti, out, outR, n);               /* core 1's sums added, or core 0 plays them */
 #else
-    lrry_render_range(ti, 0, NVOICE, out, outR, n);
+#ifdef LRRY_SPLIT_PROBE
+    {
+        uint16_t w[NVOICE];
+        uint32_t c1;
+        lrry_weights(&lrry_pp[ti], &lrj, w);
+        c1 = lrry_pick(lrj.mask, w);
+        LRRY_SPLIT_PROBE(ti, lrj.mask, w, c1);
+    }
+#endif
+    lrry_render_set(ti, ~0u, out, outR, n);
 #endif
 }
 #endif
