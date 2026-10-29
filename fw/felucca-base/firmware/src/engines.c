@@ -21,15 +21,23 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #define ENG_MEM(p) ((uint32_t)(p) < NLIVE ? (void *)eng_mem[(uint32_t)(p)].b : (void *)0)   /* part p's region, 0 for a hidden part */
 #define ENG_MEM_FITS(name, size) _Static_assert((size) <= ENG_MEM_PART, name " state over ENG_MEM_PART")
 
+/* L/RRY phase 4.4a: the engines below are descriptors only (names, the EDIT cards' descriptors, presets, the voice caps and flags the pages, the stores and budget.c read).
+ * Their DSP is gone: the L/RRY voice (lrry_voice.c) is the only sound source. Every engine's note-on and render is this one stub; the UI keeps everything it showed */
+static void eng_none_note_on(struct track *t, voice_t *v) { (void)t; (void)v; }
+static void eng_none_render(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+{
+    (void)t; (void)v; (void)out; (void)n; (void)m;
+}
+
 #include "eng_analog.c"
 #include "eng_phase.c"
 #include "eng_lofi.c"
 #include "eng_formant.c"
 #include "eng_trio.c"
 #include "eng_wheel.c"
-#include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
+#include "eng_phys.c"           /* PHYS (its DaisySP / Rings DSP, phys_dsp.c and phys_symp.c, removed in L/RRY 4.4a) */
 #include "eng_noise.c"
-#include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
+#include "eng_fm6.c"            /* FM6: the patch layer only (fm6_layout.c, Apache-2.0); its msfa synthesis removed in L/RRY 4.4a */
 #include "eng_wave.c"           /* WAVE (DUELL): the wavetable engine, its tables built from recipes into the part's engine memory */
 
 /* The placeholder of the retired DIGITAL, SAMPLE, GRAIN, DRUM and SLICE (1, 4, 8, 10, 13; core.h ENGI_RETIRED). No code, no presets, never

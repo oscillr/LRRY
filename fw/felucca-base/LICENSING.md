@@ -21,9 +21,9 @@ Every file in this tree that carries an `SPDX-License-Identifier: GPL-3.0-only` 
 - the web pages (installer, editor, the browser emulator `web/emu/`) and their tests: `web/` (not the Fukiai and DotGothic16 fonts, below)
 - the host tests: `tests/`
 
-Three source files are ports and keep the licence of their originals:
-`firmware/src/phys_dsp.c` (DaisySP, MIT), `firmware/src/phys_symp.c` (Rings, MIT) and
-`firmware/src/fm6_core.c` (msfa, Apache-2.0); and the PLATE reverb's `rev_plate` in `firmware/src/fx_bus.c` (with the constants above `plate_gain` in `fx.c`) (MIT, after the CHOMPI firmware's
+One source file is a port and keeps the licence of its original:
+`firmware/src/fm6_layout.c` (msfa, Apache-2.0: what is left of `fm6_core.c`, the FM6 patch layout and algorithm tables; L/RRY phase 4.4a removed the synthesis,
+and with the PHYS engine's DSP `phys_dsp.c` (DaisySP, MIT) and `phys_symp.c` (Rings, MIT), which are no longer in the tree); and the PLATE reverb's `rev_plate` in `firmware/src/fx_bus.c` (with the constants above `plate_gain` in `fx.c`) (MIT, after the CHOMPI firmware's
 reverb, i.e. Rings / Clouds: `LICENSES/MIT-CHOMPI.txt`; it sits in a GPL-3.0-only file). The firmware built with them is GPL-3.0-only as
 a whole.
 
@@ -53,9 +53,9 @@ or in the firmware, so their rows are gone from the tables.)
 | --- | --- | --- |
 | Inter Tight font by The Inter Project Authors: the UI text, rasterised into the firmware at build time (`tools/gen_aa_font.py`) and the text of the update screen, rasterised into `firmware/loader/ldr_screen_data.h` (`tools/gen_loader_screen.py`); the generated tables are not offered as a font, and the font declares no Reserved Font Name) | SIL OFL 1.1 | `assets/fonts/InterTight[wght].ttf`, `LICENSES/OFL-InterTight.txt` (also `assets/fonts/OFL.txt`) |
 | Barlow Semi Condensed font by The Barlow Project Authors: the UI text since DUELL 1.1, rasterised into the firmware at build time (`tools/gen_aa_font.py --preset barlow`) and shown in the web editor (`web/editor/fonts/`) | SIL OFL 1.1 | `assets/fonts/BarlowSemiCondensed-*.ttf`, `LICENSES/OFL-BarlowSemiCondensed.txt` (also `assets/fonts/OFL_Barlow.txt`) |
-| DaisySP by Electrosmith, Corp and Emilie Gillet (<https://github.com/electro-smith/DaisySP>): the PHYS engine's modal and string models and the resonator, ported to fixed point | MIT | `firmware/src/phys_dsp.c`, `LICENSES/MIT-DaisySP.txt` |
-| Rings by Emilie Gillet (<https://github.com/pichenettes/eurorack>): the PHYS engine's sympathetic strings, ported to fixed point | MIT | `firmware/src/phys_symp.c`, `LICENSES/MIT-Rings.txt` |
-| msfa by Google Inc. and Pascal Gauthier, from Dexed (<https://github.com/asb2m10/dexed>): the FM6 engine's synthesis, ported to integer C (Dexed itself is GPL-3.0; only msfa is used; the FM6 factory patches are Felucca's own) | Apache-2.0 | `firmware/src/fm6_core.c`, `LICENSES/Apache-2.0-msfa.txt` |
+| DaisySP by Electrosmith, Corp and Emilie Gillet (<https://github.com/electro-smith/DaisySP>): the PHYS engine's modal and string models and the resonator, ported to fixed point (removed in L/RRY phase 4.4a: no DaisySP code is in the tree now) | MIT | (was `firmware/src/phys_dsp.c`), `LICENSES/MIT-DaisySP.txt` |
+| Rings by Emilie Gillet (<https://github.com/pichenettes/eurorack>): the PHYS engine's sympathetic strings, ported to fixed point (removed in L/RRY phase 4.4a) | MIT | (was `firmware/src/phys_symp.c`), `LICENSES/MIT-Rings.txt` |
+| msfa by Google Inc. and Pascal Gauthier, from Dexed (<https://github.com/asb2m10/dexed>): the FM6 engine's synthesis, ported to integer C (Dexed itself is GPL-3.0; only msfa is used; the FM6 factory patches are Felucca's own); since L/RRY phase 4.4a only its patch layout and algorithm tables | Apache-2.0 | `firmware/src/fm6_layout.c`, `LICENSES/Apache-2.0-msfa.txt` |
 | klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
 | Velo (fm1-velocity) by Charles Vestal (<https://github.com/charlesvestal/fm1-velocity>), a Felucca fork: the method of KEY SENSE (key velocity from the landing and the driven reading of the key's pill, aftertouch, the calibration moving both ways); the code is written again for DUELL, none copied; its files say "after Velo's method" | GPL-3.0-only | `firmware/src/sense.c`, `sense.h`, `sense_cal.h`, `hal/fm1_adc.h` (non-blocking read), `firmware/src/ui_menu.c` (ABOUT > CREDITS, builds with KEY SENSE) |
 | X0X by charlesvestal (<https://github.com/charlesvestal/fm1-x0x>), a Felucca fork: the design of the browser emulator (the worklet, the device clock driven by its audio, the exports); its files credit it in their headers | GPL-3.0 | `web/emu/` |

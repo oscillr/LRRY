@@ -125,12 +125,15 @@ static void sec_tags(void)
 static int32_t fw_l[MAXB * CTL], fw_r[MAXB * CTL];
 static int32_t out_pk;                                  /* the master output's peak of the last run */
 static int32_t big_pk;                                  /* the part sum's peak */
+static int64_t mixx_pk;                                 /* fx.c part_mix_st's xl / xr = (the part's channel x LV4(level)) >> 10, the factor of its (xl x gli) product: that product is int32, so 2^19 and more wraps */
+#define MIXX_LIM 524288                                 /* 2^31 / 4096 (gli at most 4096) */
 /* notes on, nblk blocks of mix_block (the part sum kept: mix_l / mix_r), note off at off_blk (0: never) */
 static int play(const uint8_t *notes, int nn, int nblk, int off_blk)
 {
     int32_t o[2 * CTL];
     int b, k, i;
     out_pk = big_pk = 0;
+    mixx_pk = 0;
     for (k = 0; k < nn; k++)
         trk_note_on(&trk[0], notes[k], 100);
     for (b = 0; b < nblk && b < MAXB; b++) {
@@ -138,6 +141,16 @@ static int play(const uint8_t *notes, int nn, int nblk, int off_blk)
             for (k = 0; k < nn; k++)
                 trk_note_off(&trk[0], notes[k]);
         mix_block(o, CTL);
+        {
+            int64_t lv = LV4(part_lvl(&trk[0]));
+            for (i = 0; i < CTL; i++) {
+                int64_t xl = ((int64_t)pscr[0].buf[i] * lv) >> 10, xr = ((int64_t)pscr[0].bufR[i] * lv) >> 10;
+                xl = xl < 0 ? -xl : xl;
+                xr = xr < 0 ? -xr : xr;
+                if (xl > mixx_pk) mixx_pk = xl;
+                if (xr > mixx_pk) mixx_pk = xr;
+            }
+        }
         memcpy(fw_l + b * CTL, mix_l, CTL * sizeof(int32_t));
         memcpy(fw_r + b * CTL, mix_r, CTL * sizeof(int32_t));
         for (i = 0; i < CTL; i++) {
@@ -285,6 +298,8 @@ static void sec_random(void)
     int8_t org[EXT_P_LEN];
     uint32_t r, nren = 0, range_bad = 0, never_bad = 0, rise_bad = 0, wrap = 0, clip = 0, stuck = 0, silent = 0, chains = 0;
     int32_t worst_big = 0, worst_out = 0, worst_tail = 0;
+    int64_t worst_x = 0, worst_xo = 0;
+    uint32_t nmixov = 0, orig_ov = 0, orig_n = 0;
     uint32_t never_n[sizeof NEVER_IDS / sizeof NEVER_IDS[0]] = {0};
     uint32_t nsmart = 0, nwild = 0;
     for (r = 0; r < 1000u; r++) {
@@ -293,6 +308,20 @@ static void sec_random(void)
         original(t, r % 10u);
         for (i = 0; i < EXT_P_LEN; i++)
             org[i] = (int8_t)clamp(t->p[i], -128, 127);
+        {                                               /* the Original itself, no morph: is the patch space safe before any roll? */
+            int b;
+            play(chord, 8, 100, 40);
+            orig_n++;
+            orig_ov += mixx_pk >= MIXX_LIM;
+            if (mixx_pk > worst_xo) worst_xo = mixx_pk;
+            for (b = 0; b < 28000; b++) {
+                int32_t o[2 * CTL];
+                int k, act = 0;
+                for (k = 0; k < NVOICE; k++) act += t->v[k].active != 0;
+                if (!act) break;
+                mix_block(o, CTL);
+            }
+        }
         morph_rebase(t);
         morph_roll_cfg(0, 0u, 1u + r, amount, cfg);
         morph_roll_cfg(0, 1u, 30001u + r, amount, cfg);
@@ -337,9 +366,17 @@ static void sec_random(void)
         for (f = 0; f < 3u; f++) {                       /* the render: 8 voices at fader 0, 64, 127; released at block 40; 100 blocks */
             int b, k, active = 0;
             mp->fader = (uint8_t)(f == 0 ? 0u : f == 1 ? 64u : 127u);
+            if (getenv("LRRY_TRACE"))                    /* (which patch a sanitizer message belongs to) */
+                fprintf(stderr, "roll %u fader %u original %u %s amount %u\n", r, mp->fader, r % 10u, wild ? "WILD" : "SMART", amount);
             play(chord, 8, 100, 40);
             nren++;
             if (big_pk >= (1 << 30)) wrap++;
+            if (mixx_pk >= MIXX_LIM) {
+                nmixov++;
+                if (getenv("LRRY_TRACE"))
+                    fprintf(stderr, "  part mix factor %lld >= 2^19\n", (long long)mixx_pk);
+            }
+            if (mixx_pk > worst_x) worst_x = mixx_pk;
             if (out_pk > 32767) clip++;
             if (big_pk > worst_big) worst_big = big_pk;
             if (out_pk > worst_out) worst_out = out_pk;
@@ -365,6 +402,9 @@ static void sec_random(void)
     for (r = 0; r < sizeof NEVER_IDS / sizeof NEVER_IDS[0]; r++)
         if (never_n[r])
             printf("lrry_morph:   id %u moved in %u ends%s\n", NEVER_IDS[r], never_n[r], NEVER_IDS[r] == P_VOICE ? " (VOICE MODE, WILD only: DUELL's rule, every switch flips in WILD)" : "");
+    printf("lrry_morph:   fx.c part_mix_st's int32 product (xl x gli): its factor xl reached %lld (wraps at %d); renders where it wraps: %u of %u;\n"
+           "lrry_morph:   the 1000 Originals themselves, unmorphed: it wraps in %u of %u (their worst factor %lld): the patch space inside PARAM_LIST.md's ranges reaches it without any roll\n",
+           (long long)worst_x, MIXX_LIM, nmixov, nren, orig_ov, orig_n, (long long)worst_xo);
     printf("lrry_morph:   the longest release after the note-off: %d blocks (%.2f s)\n", worst_tail, worst_tail * (double)CTL / FS);
     printf("lrry_morph:   part sum peak worst %d (%.2f x 2^20, limit 2^30), master output peak worst %d (limit 32767); renders with a wrap %u, over 32767 %u, silent %u, a voice still active 20 s after the release %u\n",
            worst_big, worst_big / 1048576.0, worst_out, wrap, clip, silent, stuck);
@@ -373,6 +413,8 @@ static void sec_random(void)
     ck("1000 rolls, SMART: no source / sub / dirt level more than 48 above the Original's (MF_RISE)", rise_bad == 0);
     ck("3000 renders: no part-sum sample reaches 2^30 (no wrap), the master output stays inside +-32767", wrap == 0 && clip == 0 && worst_big < (1 << 30) && worst_out <= 32767);
     ck("3000 renders: every note ends after its release (no stuck voice)", stuck == 0);
+    ck("3000 renders: no signed overflow in the part mix (fx.c part_mix_st: (part x LV4(level)) >> 10 stays under 2^19)", nmixov == 0);
+    ck("the 1000 Originals unmorphed: no signed overflow in the part mix either", orig_ov == 0);
     printf("lrry_morph:   (no float in the firmware path, so no NaN can exist; signed overflow: see the UBSan build in the report)\n");
 }
 

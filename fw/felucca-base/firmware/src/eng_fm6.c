@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* L/RRY phase 4.4a: DESCRIPTOR ONLY. The engine's DSP (note-on, render and their helpers) is removed: the L/RRY voice (lrry_voice.c) is the only sound source. What stays is what the pages,
+ * the editor, the stores and budget.c read (names, the EDIT cards, presets, the voice cap and flags, the page graphs' helpers). The description below is of the engine as DUELL had it */
 /* FM6: classic 6-operator FM. The synthesis is msfa (Dexed's core), ported to integer C in fm6_core.c
  * (Apache-2.0); this file is the Felucca engine around it.
  *
@@ -35,7 +37,7 @@
  * State: per voice an fm6_note_t (in the part's engine memory as PHYS's slots, engines.c eng_mem; fm6_note_of:
  * voice_t.s[] is too small), per part the patch, the patch through the macros (fm6_eff, rebuilt in the audio ISR when either
  * changes) and the LFO (once a block). */
-#include "fm6_core.c"
+#include "fm6_layout.c"         /* (L/RRY 4.4a: what is left of msfa's port: the patch layout and the 32 algorithms, which the FM6 pages and the stores read; the synthesis core is gone) */
 #include "felucca_fm6.h"         /* tools/gen_fm6_patches.py: FM6_INIT, FM6_FACTORY[] */
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
@@ -60,14 +62,8 @@ static struct {                                  /* the patch through the macros
     int16_t env[4];                              /* the AMP ENV knobs (P_ATK, P_DEC, P_SUS, P_REL) it was made with (fm6_env_derive) */
     uint32_t mk;                                 /* the morph's key it was made with (fm6_morph: 0 = none) */
     int32_t dt[6];                               /* DTUN: per operator, Q24 log2 */
-} fm6_eff[NLIVE];                              /* (DUELL: the shown parts; a hidden part never sounds) */
-/* DUELL MORPH (morph.c morph_fm6): the blend of the track's patch bytes (operator levels and EGs, pitch EG, LFO), written
- * into fm6_eff's copy of the patch (never into fm6_patch). fm6_morph(tr, 0) = the blend's key (0: nothing morphed; a
- * changed key rebuilds fm6_eff), fm6_morph(tr, p) = apply it to the 155 bytes p. Set by morph.c; null = no morph */
-static uint32_t (*fm6_morph)(uint32_t tr, uint8_t *p);
-static fm6_lfo_t fm6_lfo[NLIVE];
-static int32_t fm6_lfo_v[NLIVE], fm6_lfo_d[NLIVE]; /* this block's LFO value and delay (Q24) */
-ENG_MEM_FITS("FM6", sizeof(fm6_note_t) * FM6_POLY);
+} fm6_eff[NLIVE]; /* this block's LFO value and delay (Q24) */
+
 /* the voice bank (fm6_vbank.c; in the pool, zeroed at boot: no bank without the store) */
 static uint32_t fm6_bank_used __attribute__((section(".pool")));   /* bit k: B k+1 holds a voice */
 static int (*fm6_bank_read)(uint32_t k, uint8_t *pk) __attribute__((section(".pool")));   /* voice k -> pk, 0 = read */
@@ -208,8 +204,6 @@ static void fm6_env_derive(const uint8_t *p, uint32_t alg, int32_t *d)
     d[2] = fm6_level_d(op[FP_L1 + 2]);
     d[3] = fm6_rate_d(op[FP_R1 + 3]);
 }
-/* the knob's distance from D in DX7 steps (rate steps or levels), rounded away from zero: the first knob step off D already changes the sound */
-static int32_t fm6_env_steps(int32_t x) { return x >= 0 ? (x * 99 + 126) / 127 : -((-x * 99 + 126) / 127); }
 static uint8_t fm6_dlast[NTRK][4];               /* the numbers the patch gave when the main loop last looked (not saved) */
 static uint8_t fm6_dok;                          /* bit tr: fm6_dlast[tr] is valid */
 enum { FM6_LOOK_FOLLOW, FM6_LOOK_NEW, FM6_LOOK_KEEP };
@@ -389,89 +383,6 @@ static void fm6_poll(void)
     }
 }
 
-/* -------------------------------------------------------------- macros --- */
-/* the AMP ENV knobs ek against the numbers patch p itself gives: their steps off the patch -> eoff, the knobs noted in env; 1 when any is off (flash, as fm6_env_apply: see there) */
-__attribute__((noinline)) static uint32_t fm6_env_offsets(int16_t *env, const uint8_t *p, uint32_t alg, const int16_t *ek, int32_t *eoff)
-{
-    int32_t ed[4], k;
-    uint32_t on = 0;
-    fm6_env_derive(p, alg, ed);
-    for (k = 0; k < 4; k++) {
-        env[k] = (uint8_t)ek[k];
-        eoff[k] = fm6_env_steps(clamp(ek[k], 0, 127) - ed[k]);
-        on |= (uint32_t)(eoff[k] != 0);
-    }
-    return on;
-}
-/* one carrier's envelope moved by the knobs' steps eoff (ATTACK R1, DECAY R2 and R3, SUSTAIN L2 and L3 together never above the larger of the two (a decay never becomes a swell), RELEASE R4). Kept out of fm6_sync
- * (range Z, tools/ram_fns_z.py) and out of the RAM: it runs only when the patch or a knob changed, and the pool's tail rule (8,192 B) has no room for its bytes there */
-__attribute__((noinline)) static void fm6_env_apply(uint8_t *op, const int32_t *eoff)
-{
-    static const uint8_t RI[4] = {0, 1, 1, 3};
-    int32_t l2 = op[FP_L1 + 1], l3 = op[FP_L1 + 2], cap = l2 > l3 ? l2 : l3, j;
-    for (j = 0; j < 4; j++)
-        op[FP_R1 + j] = (uint8_t)clamp(op[FP_R1 + j] - eoff[RI[j]], 0, 99);
-    if (eoff[2]) {
-        int32_t n2 = clamp(l2 + eoff[2], 0, 99), n3 = clamp(l3 + eoff[2], 0, 99);
-        op[FP_L1 + 1] = (uint8_t)(n2 > cap ? cap : n2);
-        op[FP_L1 + 2] = (uint8_t)(n3 > cap ? cap : n3);
-    }
-}
-/* the patch through E0..E6 (audio ISR; cheap when nothing changed) */
-static void fm6_sync(const track_t *t)
-{
-    uint32_t tr = (uint32_t)(t - trk), k, j, car, n = 0;
-    const int16_t *e = &t->p[P_E0];
-    int32_t meg, step, eoff[4];
-    uint32_t mk, eon = 0;
-    const int16_t *ek = &t->p[P_ATK];                           /* the AMP ENV knobs: P_ATK, P_DEC, P_SUS, P_REL follow each other */
-    if (tr >= NLIVE)
-        return;
-    mk = fm6_morph ? fm6_morph(tr, 0) : 0u;
-    if (fm6_eff[tr].ok && fm6_eff[tr].gen == fm6_pgen[tr] && fm6_eff[tr].mk == mk) {
-        for (k = 0; k < 7u && fm6_eff[tr].e[k] == e[k]; k++)
-            ;
-        if (k == 7u && fm6_eff[tr].env[0] == ek[0] && fm6_eff[tr].env[1] == ek[1] && fm6_eff[tr].env[2] == ek[2] && fm6_eff[tr].env[3] == ek[3])
-            return;
-    }
-    fm6_eff[tr].gen = fm6_pgen[tr];
-    memcpy(fm6_eff[tr].p, fm6_patch[tr], FP_SIZE);
-    fm6_eff[tr].mk = mk;
-    eon = fm6_env_offsets(fm6_eff[tr].env, fm6_eff[tr].p, e[0] >= 1 && e[0] <= 32 ? (uint32_t)e[0] - 1u : fm6_eff[tr].p[FP_ALG] & 31u, ek, eoff);   /* (before the morph: the knobs never move with it) */
-    if (mk)
-        fm6_morph(tr, fm6_eff[tr].p);
-    for (k = 0; k < 7u; k++)
-        fm6_eff[tr].e[k] = e[k];
-    {
-        uint8_t *p = fm6_eff[tr].p;
-        uint32_t alg = e[0] >= 1 && e[0] <= 32 ? (uint32_t)e[0] - 1u : p[FP_ALG] & 31u;
-        fm6_eff[tr].alg = (uint8_t)alg;
-        fm6_eff[tr].fb = (uint8_t)clamp(p[FP_FB] + e[1], 0, 7);
-        car = fm6_carriers(alg);
-        meg = clamp(e[4], -64, 63) * 40 / 64;               /* MEG: rate steps (+ slower) */
-        step = clamp(e[6], 0, 127) * (12 * 13981) / 127;    /* DTUN: up to 12 cents a step (1 cent = 13981) */
-        for (k = 0; k < 6u; k++) {
-            uint8_t *op = p + (5u - k) * FP_OP;              /* OP1 first: carriers in their order */
-            uint32_t ki = 5u - k;
-            fm6_eff[tr].dt[ki] = 0;
-            if ((car >> ki) & 1u) {                          /* carriers 0, +1, -1, +2, -2, +3 steps apart */
-                static const int8_t SPREAD[6] = {0, 1, -1, 2, -2, 3};
-                fm6_eff[tr].dt[ki] = SPREAD[n++] * step;
-                if (eon)                                     /* the AMP ENV knobs: every carrier's envelope by the same steps (a higher knob is slower or higher) */
-                    fm6_env_apply(op, eoff);
-                continue;
-            }
-            if (!op[FP_MODE])
-                op[FP_FC] = (uint8_t)clamp(op[FP_FC] + e[3], 0, 31);
-            for (j = 0; j < 4u; j++)
-                op[FP_R1 + j] = (uint8_t)clamp(op[FP_R1 + j] - meg, 0, 99);
-            op[FP_KVS] = (uint8_t)clamp(op[FP_KVS] + e[5], 0, 7);
-        }
-        fm6_lfo_reset(&fm6_lfo[tr], p);
-    }
-    fm6_eff[tr].ok = 1;
-}
-
 /* --------------------------------------------------------------- voice --- */
 static fm6_note_t *fm6_note_of(track_t *t, voice_t *v)
 {
@@ -480,30 +391,6 @@ static fm6_note_t *fm6_note_of(track_t *t, voice_t *v)
         return 0;
     i = (uint32_t)(v - t->v);
     return i < FM6_POLY ? (fm6_note_t *)ENG_MEM(t - trk) + i : 0;
-}
-
-static void fm6_note_on(track_t *t, voice_t *v)
-{
-    fm6_note_t *n = fm6_note_of(t, v);
-    uint32_t tr = (uint32_t)(t - trk);
-    const uint8_t *p;
-    if (!n)
-        return;
-    fm6_sync(t);
-    p = fm6_eff[tr].p;
-    fm6_note_init(n, p, (int32_t)v->note + p[FP_TRNSP] - 24, v->mvel ? v->mvel : v->vel,
-                  (!v->env && !v->env_out) || !n->live);    /* from silence: phases and gains from 0 */
-    fm6_lfo_key(&fm6_lfo[tr]);
-}
-
-static void fm6_block(track_t *t)       /* once a block and part: the macros, the LFO */
-{
-    uint32_t tr = (uint32_t)(t - trk);
-    if (tr >= NTRK)
-        return;
-    fm6_sync(t);
-    fm6_lfo_v[tr] = fm6_lfo_sample(&fm6_lfo[tr]);
-    fm6_lfo_d[tr] = fm6_lfo_delay(&fm6_lfo[tr]);
 }
 
 /* the SUB LAYER's follow (chain_sub.c; FM6 owns its amplitude, the operators' envelopes are inside its signal): voice v's level as the block just rendered left it, 0..1 as Q15. It is the loudest
@@ -521,80 +408,6 @@ static __attribute__((noinline)) int32_t fm6_sub_follow(track_t *t, voice_t *v)
         if ((car >> k & 1u) && n->op[k].gain_out > g)
             g = n->op[k].gain_out;
     return g >= (1 << 25) ? 32767 : g >> 10;
-}
-
-/* every carrier has gone silent for good: the voice ends (voice.c, engine_t.done) */
-static int fm6_done(track_t *t, voice_t *v)
-{
-    fm6_note_t *n = fm6_note_of(t, v);
-    uint32_t tr = (uint32_t)(t - trk);
-    if (!n || !n->live)
-        return 1;
-    if (!fm6_note_done(n, fm6_eff[tr].p, fm6_eff[tr].alg))
-        return 0;
-    n->live = 0;
-    return 1;
-}
-
-/* DUELL ARP TARGET (SPEC 2.3): the masked operators (bit k: the patch's operator k, OP6 = 0) a pitch offset of the arp's
- * pitch over the root's (Q24 log2, as fm6_note_logfreq: a fixed-frequency operator ignores it) and the arp's gate as a
- * level offset (log2 of again, ~ -10 octaves at 0); dt2 / ul filled, dt2 returned */
-static __attribute__((noinline)) const int32_t *atg_fm6(const vmod_t *m, const int32_t *dt, int32_t *dt2, int32_t *ul)
-{
-    int32_t d = (int32_t)(((int64_t)m->adelta * ((1 << 24) / 12)) >> 4), g = m->again, lg;
-    uint32_t k;
-    if (g <= 32) {
-        lg = -(10 << 24);
-    } else {                                            /* log2(g / 32768): the octave, then the mantissa linearly */
-        int32_t e = 0;
-        uint32_t x = (uint32_t)g;
-        while (x < 16384u) {
-            x <<= 1;
-            e++;
-        }
-        lg = -(e << 24) - (int32_t)(((32768u - x) << 10));   /* x in [16384, 32768): (x / 32768 - 1) * 2^24 */
-    }
-    for (k = 0; k < 6u; k++) {
-        uint32_t on = (m->amask >> k) & 1u;
-        dt2[k] = dt[k] + (on ? d : 0);
-        ul[k] = on ? lg : 0;
-    }
-    return dt2;
-}
-
-static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t len, const vmod_t *m)
-{
-    fm6_note_t *n = fm6_note_of(t, v);
-    uint32_t tr = (uint32_t)(t - trk), i;
-    const uint8_t *p;
-    int32_t bus[3 * FM6_N], lf, fb, lvl, k, a, da, dt2[6], ul[6];   /* bus: the block (first FM6_N) and fm6_core_render's two operator buses */
-    if (!n || !n->live || len != FM6_N)
-        return;
-    p = fm6_eff[tr].p;
-    if (!v->gate && n->down)
-        fm6_note_key(n, p, 0);
-    lf = fm6_note_logfreq(m->pitch16 + (p[FP_TRNSP] - 24) * 16, m->fine);
-    fb = clamp(fm6_eff[tr].fb + ((m->shape - (64 << 8)) >> 11), 0, 7);
-    lvl = clamp(t->p[P_E2], -64, 63) * 24 + clamp(m->cutoff >> 8, -150, 150) * 16;   /* microsteps */
-    fm6_note_ol(n, p);                                  /* (DUELL MORPH: an OL that moved under the note) */
-    if (m->amask) {                                     /* DUELL ARP TARGET (SPEC 2.3): operators on the arp's pitch */
-        if (!fm6_note_compute(n, p, bus, fm6_lfo_v[tr], fm6_lfo_d[tr], lf, fm6_eff[tr].alg, fb,
-                              atg_fm6(m, fm6_eff[tr].dt, dt2, ul), lvl << 16, ul))
-            return;
-    } else if (!fm6_note_compute(n, p, bus, fm6_lfo_v[tr], fm6_lfo_d[tr], lf, fm6_eff[tr].alg, fb, fm6_eff[tr].dt,
-                                 lvl << 16, 0)) {
-        return;                                         /* every carrier below the threshold */
-    }
-    /* the voice's amplitude ramp x VOICE_FS (one carrier at full: VOICE_FS / 2), six voices in unison ~ one */
-    k = t->p[P_VOICE] == V_UNISON ? VOICE_FS * 2 / 5 : VOICE_FS;
-    a = mulq15(m->amp0, k);
-    da = (mulq15(m->amp1, k) - a) >> FM6_LG_N;
-    for (i = 0; i < FM6_N; i++) {
-        int32_t x = bus[i] - n->dc;
-        n->dc += x >> 10;                                 /* a one-pole high-pass, ~7 Hz: FM puts sidebands at 0 Hz */
-        a += da;
-        out[i] += (int32_t)(((int64_t)x * a) >> 26);
-    }
 }
 
 /* --------------------------------------------------------- the engine --- */
@@ -637,15 +450,13 @@ static const engine_t ENG_FM6 = {
     },
     .presets = FM6_PRESETS,
     .npresets = NELEM(FM6_PRESETS),
-    .note_on = fm6_note_on,
-    .render = fm6_render,
+    .note_on = eng_none_note_on,
+    .render = eng_none_render,
     .knob = {P_E2, P_E3, P_E4, P_E7},
     .poly = FM6_POLY,
-    .block = fm6_block,
     .ownenv = 1,
     .uiord = FM6_UIORD,
-    .done = fm6_done,
-    .mem = sizeof(fm6_note_t) * FM6_POLY,
+    .mem = 1824u,                /* (4.4a: sizeof(fm6_note_t) x FM6_POLY as it was: what a claim clears stays as it was; the operators are gone) */
     .atgt = ATG_FM6,             /* ARP TARGET: OP1..OP6 (SPEC 2.3) */
     .ufilt = 1,                 /* no filter of its own: the multimode filter (DUELL 0.2.9; voice.c uf_run: CUT RES MODE SLOPE, P_FREEA..D) */
 };

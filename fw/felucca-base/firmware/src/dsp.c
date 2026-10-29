@@ -112,20 +112,6 @@ static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..1
     c->a2 = (c->a1 * g) >> 12;
     c->a3 = (c->a2 * g) >> 12;
 }
-static inline void tsvf_coef(tsvf_t *c, int32_t cut, int32_t reso)   /* reso 0..127: damping 2.0 .. ~0.15 */
-{
-    tsvf_coef_k(c, cut, 8192 - reso * 7600 / 127);
-}
-
-static inline int32_t tsvf_lp(const tsvf_t *c, int32_t in, int32_t *ic1, int32_t *ic2)
-{
-    int32_t v3 = in - *ic2;
-    int32_t v1 = (c->a1 * *ic1 + c->a2 * v3) >> 13;
-    int32_t v2 = *ic2 + ((c->a2 * *ic1 + c->a3 * v3) >> 13);
-    *ic1 = clamp(2 * v1 - *ic1, -150000, 150000);
-    *ic2 = clamp(2 * v2 - *ic2, -150000, 150000);
-    return v2;
-}
 
 /* amplitude ramp over the block. Blocks are always CTL long, so x / CTL is a
  * shift (rounded towards zero, as a division); the compiler at -Os keeps
@@ -138,13 +124,6 @@ static inline int32_t amp_at(const vmod_t *m, uint32_t i)
 {
     int32_t x = (m->amp1 - m->amp0) * (int32_t)i;
     return m->amp0 + ((x + ((x >> 31) & (CTL - 1))) >> CTL_LOG2);
-}
-
-/* a voice's sample s (Q15) at the amplitude ramp's sample i, scaled to the voice level (VOICE_FS);
- * engines whose signal peaks near half scale add it << 1 */
-static inline int32_t voice_amp(int32_t s, const vmod_t *m, uint32_t i)
-{
-    return mulq15(mulq15(s, amp_at(m, i)), VOICE_FS);
 }
 
 /* linear up to k, then a soft knee: only the peaks above k saturate (|y| - k must stay < 2^30) */
@@ -164,16 +143,4 @@ static inline uint32_t cents_inc(int32_t pitch16, int32_t ct, int32_t fine)
     int32_t d16 = ct * 16 / 100, rem = ct * 16 - d16 * 100;          /* rem: 1/1600 semitone */
     uint32_t inc = pitch_inc(clamp(pitch16 + d16, 0, 2047));
     return inc + (uint32_t)((int32_t)(inc >> 12) * (rem * 2367 / 16000 + fine));
-}
-
-/* ARP TARGET (SPEC 2.3): a unit's pitch16 (bit b of m->amask: on the arp's pitch, else the root's) and the increment of
- * the arp's pitch (m->inc's, the same fine factor) */
-static inline int32_t atg_pitch(const vmod_t *m, uint32_t b)
-{
-    return (m->amask >> b) & 1u ? clamp(m->pitch16 + m->adelta, 0, 2047) : m->pitch16;
-}
-static inline uint32_t atg_inc(const vmod_t *m)
-{
-    uint32_t inc = pitch_inc(clamp(m->pitch16 + m->adelta, 0, 2047));
-    return m->fine ? inc + (uint32_t)((int32_t)(inc >> 12) * m->fine) : inc;
 }

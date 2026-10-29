@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
+/* L/RRY phase 4.4a: DESCRIPTOR ONLY. The engine's DSP (note-on, render and their helpers) is removed: the L/RRY voice (lrry_voice.c) is the only sound source. What stays is what the pages,
+ * the editor, the stores and budget.c read (names, the EDIT cards, presets, the voice cap and flags, the page graphs' helpers). The description below is of the engine as DUELL had it */
 /* WAVE (DUELL): a wavetable oscillator. Our own code, written for this firmware (no code from other projects).
  *
  * TABLE picks a table, POS scans it. A table is not stored finished: it is a RECIPE (a few lines below that give each harmonic's
@@ -66,8 +68,7 @@ static const char *const N_WV_TABLE[] = {"SAWSQ", "PWM", "HARM", "ODD", "ORGAN",
 #define WV_FPQ ((int32_t)(((WV_F - 1u) << 26) / (127u << 8)))   /* POS (127 << 8) to Q16 frames, Q10 */
 #define WV_SAFE 38196000u        /* level 0's top increment: harmonic 64 at WV_FOLD = 25.1 kHz (392 Hz); level l: << l */
 static const uint16_t WV_LO[WV_NL] = {0, 257, 386, 515, 580};  /* a level's place in a frame */
-static const uint16_t WV_N[WV_NL] = {256, 128, 128, 64, 64};    /* its samples */
-static const uint8_t WV_SH[WV_NL] = {24, 25, 25, 26, 26};       /* the read phase's shift to its sample index */
+static const uint16_t WV_N[WV_NL] = {256, 128, 128, 64, 64};       /* the read phase's shift to its sample index */
 
 typedef struct {
     uint8_t want, have;          /* the table asked for and the table in memory, + 1 (0: none); the audio side writes want */
@@ -599,289 +600,12 @@ static __attribute__((unused)) void wave_build_now(track_t *t)
  * the attack (DIGI PLUCK) switched the second read in with a step of its mix, so now it glides from the first block like at any other time). A value that does not move plays bit for bit as before */
 #define WV_DF 8u                 /* blocks of DTN's fade in / out: 5.8 ms (wv_dmix's weights: WV_DF x 4096 = 32768) */
 
-static int32_t wv_s7(const int16_t *p) { return p[P_E5] ? (int32_t)(WV_DF << 16) : 0; }
-static uint8_t wv_stk[NLIVE][NVOICE], wv_stn[NLIVE][NVOICE];   /* STEPS: the place a voice holds and the count it was held for (wave_steps, below the engine) */
-static void wave_note_on(track_t *t, voice_t *v)
-{
-    const wv_mem_t *w = (const wv_mem_t *)ENG_MEM(t - trk);
-    uint32_t k;
-    for (k = 0; k < 8u; k++)
-        v->s[k] = 0;
-    v->s[0] = -1;
-    v->s[1] = w && w->h.have && w->h.have == w->h.want ? 32767 : 0;
-    v->s[7] = wv_s7(t->p);
-    v->ph[1] = v->ph[0] + 0x55555555u;                  /* (DTN's read: a third of a cycle on, no beating from in phase) */
-    v->ph[2] = 0;
-    v->s[4] = (int32_t)v->ph[0];
-    v->s[5] = (int32_t)v->ph[1];
-    if ((uint32_t)(t - trk) < NLIVE && (uint32_t)(v - t->v) < NVOICE)
-        wv_stn[t - trk][v - t->v] = 0;                  /* STEPS: no place held yet (wave_steps takes the nearest) */
-}
-
-/* one level's read into dst[n]: the read phases rp (32 bit), the scan place fp (Q16 frames) stepping dfp a sample */
-static void wv_read(const int8_t *tab, uint32_t lo, uint32_t sh, const uint32_t *rp, int32_t fp, int32_t dfp, int32_t *dst,
-                    uint32_t n)
-{
-    uint32_t i;
-    for (i = 0; i < n; i++) {
-        uint32_t ph = rp[i], wq = ((uint32_t)fp >> 4) & 0xFFFu;
-        const int8_t *a = tab + ((uint32_t)fp >> 16) * WV_FS + lo + (ph >> sh);
-        int32_t fr = (int32_t)((ph >> (sh - 12u)) & 0xFFFu);
-        int32_t x0 = a[0], x1 = a[1], y0 = a[WV_FS], y1 = a[WV_FS + 1u];
-        int32_t l = (x0 << 12) + (x1 - x0) * fr, h = (y0 << 12) + (y1 - y0) * fr;
-        dst[i] = (l + ((((h - l) >> 6) * (int32_t)wq) >> 6)) >> 4;   /* 127 -> 32512 */
-        fp += dfp;
-    }
-}
-/* the sixth level: the frames' fundamentals (WV_FUND, mixed as the frames), a sine at the read phase */
-static void wv_read_sine(const int8_t *tab, const uint32_t *rp, int32_t fp, int32_t dfp, int32_t *dst, uint32_t n)
-{
-    uint32_t i;
-    for (i = 0; i < n; i++) {
-        const int8_t *a = tab + ((uint32_t)fp >> 16) * WV_FS + WV_FUND;
-        int32_t f0 = a[0], fa = (f0 << 12) + (a[WV_FS] - f0) * (int32_t)(((uint32_t)fp >> 4) & 0xFFFu);   /* Q12 */
-        dst[i] = (sine_i(rp[i]) * (fa >> 6)) >> 12;     /* x 2 (it is halved) x 256 (8 bits -> Q15) */
-        fp += dfp;
-    }
-}
-/* the oscillator's read at level l (WV_NL: the sixth, the sine), cross-faded (lw Q12, 0: none) into level l + 1 */
-static void wv_lvl(const int8_t *tab, uint32_t l, const uint32_t *rp, int32_t fp, int32_t dfp, int32_t *dst, uint32_t n)
-{
-    if (l < WV_NL)
-        wv_read(tab, WV_LO[l], WV_SH[l], rp, fp, dfp, dst, n);
-    else
-        wv_read_sine(tab, rp, fp, dfp, dst, n);
-}
-static void wv_osc(const int8_t *tab, uint32_t l, int32_t lw, const uint32_t *rp, int32_t fp, int32_t dfp, int32_t *dst,
-                   uint32_t n)
-{
-    wv_lvl(tab, l, rp, fp, dfp, dst, n);
-    if (lw) {
-        int32_t tmp[CTL];
-        uint32_t i;
-        wv_lvl(tab, l + 1u, rp, fp, dfp, tmp, n);
-        for (i = 0; i < n; i++)
-            dst[i] += ((tmp[i] - dst[i]) * lw) >> 12;
-    }
-}
-
-/* BEND: the read phase warped, the cycle's first half squeezed into b of it, the second half stretched over the rest (a skew,
- * like a pulse width for any wave). The squeezed half is read s times as fast, s = 10^(BEND / 127): 1 .. 10 in even steps of
- * pitch (b = 1 / 2s: 1/2 .. 1/20), as SYNC's ratio. 20-bit phase in, the slopes so the products stay in 32 bits */
-typedef struct { uint32_t b, k1, k2, slope; } wv_warp_t;
-static void wv_warp_set(wv_warp_t *wp, int32_t bend)
-{
-    uint32_t s = (uint32_t)wv_exp2(bend * 217706 / 127), b = (0x80000000u / s) << 4;   /* s Q16 (log2 10 = 3.32); b = 2^35 / s, Q20 */
-    wp->b = b;
-    wp->k1 = 0x80000000u / b;
-    wp->k2 = 0x80000000u / (1048576u - b);
-    wp->slope = s;                                       /* the steepest part's speed, Q16 */
-}
-static void wv_warp(const wv_warp_t *wp, uint32_t *rp, uint32_t n)
-{
-    uint32_t i, b = wp->b, k1 = wp->k1, k2 = wp->k2;
-    for (i = 0; i < n; i++) {
-        uint32_t p = rp[i] >> 12;
-        rp[i] = p < b ? p * k1 : 0x80000000u + (p - b) * k2;
-    }
-}
-
-/* the read phases of a block into rp: free (SYNC 0), or hard-synced to the free phase *php at ratio r16 (Q16, 1 .. 8): the
- * read restarts each time the free phase wraps. A restart is a step in the wave: its sample index (1..n, n: the next block's
- * first) and how far after the step that sample lies (Q15 of a sample) go to ev / et, for the correction (wv_blep) */
-static uint32_t wv_phases(uint32_t *php, uint32_t *spp, uint32_t inc, uint32_t r16, uint32_t *rp, uint8_t *ev, uint16_t *et,
-                          uint32_t n)
-{
-    uint32_t ph = *php, sp = *spp, i, ne = 0;
-    if (r16 <= 65536u) {
-        for (i = 0; i < n; i++) {
-            rp[i] = ph;
-            ph += inc;
-        }
-        *php = ph;
-        *spp = ph;                                       /* (the synced phase follows: SYNC turned up starts from here) */
-        return 0;
-    } else {
-        uint64_t s64 = ((uint64_t)inc * r16) >> 16;
-        uint32_t sinc = s64 > 0x7FFFFFFFu ? 0x7FFFFFFFu : (uint32_t)s64;
-        for (i = 0; i < n; i++) {
-            rp[i] = sp;
-            ph += inc;
-            sp += sinc;
-            if (ph < inc) {                              /* the free phase wrapped: the synced one starts over where it is */
-                sp = (uint32_t)(((uint64_t)ph * r16) >> 16);
-                ev[ne] = (uint8_t)(i + 1u);
-                et[ne++] = (uint16_t)(ph / ((inc >> 15) | 1u) > 32767u ? 32767u : ph / ((inc >> 15) | 1u));   /* (32-bit divide) */
-            }
-        }
-    }
-    *php = ph;
-    *spp = sp;
-    return ne;
-}
-/* one sample of the read (level l, no cross-fade) at phase ph, scan place fp */
-static int32_t wv_read1(const int8_t *tab, uint32_t l, uint32_t ph, int32_t fp)
-{
-    uint32_t r = ph;
-    int32_t s;
-    wv_lvl(tab, l, &r, fp, 0, &s, 1);
-    return s;
-}
-/* the SYNC restarts' steps smoothed (a two-sample polyBLEP): a step of d (the wave from its value at the free phase's wrap, end,
- * to its start, 0: every table starts at 0) at t (Q15) before sample k adds d (t^2 / 2) to sample k - 1 and -d (1 - t)^2 / 2 to
- * sample k; k = n is the next block's first: that part is owed (*owe) */
-static void wv_blep(int32_t *s, uint32_t n, const uint8_t *ev, const uint16_t *et, uint32_t ne, int32_t end, int32_t *owe)
-{
-    uint32_t j;
-    s[0] += *owe;
-    *owe = 0;
-    for (j = 0; j < ne; j++) {
-        int32_t t = et[j], u = 32768 - t, d = -end, k = ev[j];
-        s[k - 1] += (int32_t)(((int64_t)d * ((t * t) >> 15)) >> 16);
-        if ((uint32_t)k < n)
-            s[k] -= (int32_t)(((int64_t)d * ((u * u) >> 15)) >> 16);
-        else
-            *owe = -(int32_t)(((int64_t)d * ((u * u) >> 15)) >> 16);
-    }
-}
+static uint8_t wv_stk[NLIVE][NVOICE], wv_stn[NLIVE][NVOICE];
 
 #ifdef WV_TEST_HOOKS
-static uint8_t wv_test_l0, wv_test_noblep;               /* tests/wave_test.c: always level 0; no SYNC correction (to measure them) */
+               /* tests/wave_test.c: always level 0; no SYNC correction (to measure them) */
 #endif
-/* the level for an increment ie (with what multiplies the read's speed), *lw the cross-fade into the next one (Q12) */
-static uint32_t wv_level(uint64_t ie, int32_t *lw)
-{
-    uint32_t l = 0;
-    uint64_t hi, lo;
-#ifdef WV_TEST_HOOKS
-    if (wv_test_l0) {
-        *lw = 0;
-        return 0;
-    }
-#endif
-    while (l < WV_NL && ie > (uint64_t)WV_SAFE << l)
-        l++;
-    hi = (uint64_t)WV_SAFE << l;
-    lo = hi - (hi * 4799u >> 14);                        /* half an octave under it (x 0.7071): a level's top harmonics go out over a
-                                                         * half octave of speed (SYNC and BEND sweep it fast: a sparse bright table,
-                                                         * GLASS, lost them within a few % of MORPH travel at a quarter octave) */
-    *lw = l < WV_NL && ie > lo ? (int32_t)((uint32_t)(ie - lo) / ((uint32_t)(hi - lo) >> 12)) : 0;   /* (hi < 2^31 here: 32-bit) */
-    if (*lw > 4096)
-        *lw = 4096;
-    return l;
-}
 
-/* one oscillator (the main one, k 0, or DTN's, k 1) into dst: its phases, the warp, the read, the SYNC corrections */
-static void wv_line(const wv_mem_t *w, voice_t *v, uint32_t k, uint32_t inc, uint32_t r16, const wv_warp_t *wp, uint32_t l,
-                    int32_t lw, int32_t fp, int32_t dfp, int32_t *dst, uint32_t n)
-{
-    uint32_t rp[CTL], ne, sp = (uint32_t)v->s[4u + k];
-    uint8_t ev[CTL];
-    uint16_t et[CTL];
-    ne = wv_phases(&v->ph[k], &sp, inc, r16, rp, ev, et, n);
-    v->s[4u + k] = (int32_t)sp;
-    if (wp)
-        wv_warp(wp, rp, n);
-    wv_osc(w->tab, l, lw, rp, fp, dfp, dst, n);
-    if (r16 > 65536u
-#ifdef WV_TEST_HOOKS
-        && !wv_test_noblep
-#endif
-    ) {
-        uint32_t pe = (r16 & 0xFFFFu) << 16;              /* the synced phase at the free one's wrap: r mod 1 */
-        if (wp)
-            wv_warp(wp, &pe, 1);
-        wv_blep(dst, n, ev, et, ne, ne ? wv_read1(w->tab, l, pe, fp + dfp * (int32_t)ev[0]) : 0, &v->s[2u + k]);
-    } else {
-        v->s[2u + k] = 0;
-    }
-}
-
-/* SYNC's ratio (*r16), BEND's warp (*wp) and the level they read at (*lw its cross-fade): once a block and voice, out of line (DUELL 0.2.25: in
- * the flash; their divides and 64-bit compares were 0.3 KB of the hot block, which DTN's smoothing now uses) */
-static __attribute__((noinline)) uint32_t wv_speed(uint32_t inc, int32_t sync, int32_t bend, uint32_t *r16, wv_warp_t *wp, int32_t *lw)
-{
-    uint64_t ie = inc;
-    if (sync > 0) {
-        *r16 = (uint32_t)wv_exp2(sync * 3 * 65536 / 127);
-        ie = (ie * *r16) >> 16;
-    }
-    if (bend > 0) {
-        wv_warp_set(wp, bend);
-        ie = (ie * wp->slope) >> 16;
-    }
-    return wv_level(ie, lw);
-}
-/* DTN's share moving from d0 to d1 (of WV_DF) over the block: s1 = the oscillator + share x (DTN - it) / 2 (at WV_DF: (s1 + s2) / 2, as
- * the steady mix; out of line: it runs only for WV_DF blocks after DTN leaves or reaches 0) */
-static __attribute__((noinline)) void wv_dmix(int32_t *s1, const int32_t *s2, int32_t d0, int32_t d1, uint32_t n)
-{
-    uint32_t i;
-    for (i = 0; i < n; i++) {
-        int32_t wq = (d0 << 12) + (((d1 - d0) * (int32_t)i << 12) / (int32_t)CTL);   /* Q15 (WV_DF x 4096 = 32768) */
-        s1[i] += (((s2[i] - s1[i]) >> 1) * wq) >> 15;
-    }
-}
-
-static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
-{
-    const int16_t *p = t->p;
-    const wv_mem_t *w = (const wv_mem_t *)ENG_MEM(t - trk);
-    int32_t g0 = v->s[1], g1, pq, fp1, fp0, dfp, lw, dtn = p[P_E5], bend = p[P_E2], sync = p[P_E3];
-    int32_t d0 = (int32_t)((uint32_t)v->s[7] >> 16 & 15u), d1;
-    uint32_t i, l, inc = m->inc, r16 = 65536u;
-    int32_t s1[CTL], s2[CTL];
-    wv_warp_t wp;
-    vmod_t mg;
-    if (n > CTL)
-        n = CTL;
-    if (!w || !w->h.have) {                              /* no table (being built): silent */
-        v->s[1] = 0;
-        return;
-    }
-    g1 = w->h.have == w->h.want ? g0 + WV_GSTEP : g0 - WV_GSTEP;
-    g1 = g1 < 0 ? 0 : g1 > 32767 ? 32767 : g1;
-    v->s[1] = g1;
-    if (!g0 && !g1)
-        return;
-    /* POS: the knob plus the SHP routes (64 << 8 the centre), over the whole scan */
-    pq = clamp((p[P_E1] << 8) + (m->shape - (64 << 8)), 0, 127 << 8);
-    fp1 = (pq * WV_FPQ) >> 10;                           /* the whole scan, Q16 frames (32-bit: no 64-bit divide on the device) */
-    fp1 = fp1 > WV_FPMAX ? WV_FPMAX : fp1;
-    fp0 = v->s[0] < 0 ? fp1 : v->s[0];
-    dfp = (fp1 - fp0) / (int32_t)CTL;
-    v->s[0] = fp0 + dfp * (int32_t)n;
-    /* SYNC: the read's ratio to the note, 1 .. 8 (three octaves, even steps of pitch); BEND: the warp. Both read faster than the
-     * note: the level is chosen for the fastest part (the band-limit holds there) */
-    l = wv_speed(inc, sync, bend, &r16, &wp, &lw);
-    wv_line(w, v, 0, inc, r16, bend > 0 ? &wp : 0, l, lw, fp0, dfp, s1, n);
-    d1 = dtn ? (d0 < (int32_t)WV_DF ? d0 + 1 : (int32_t)WV_DF) : (d0 ? d0 - 1 : 0);   /* (DTN's share: on, off, or on its way) */
-    v->s[7] = d1 << 16;
-    if (dtn || d0) {                                     /* DTN: a second read DTN cents up, half and half */
-        wv_line(w, v, 1, cents_inc(m->pitch16, dtn, m->fine), r16, bend > 0 ? &wp : 0, l, lw, fp0, dfp, s2, n);
-        if (d0 + d1 == 2 * (int32_t)WV_DF)            /* (steady: as ever) */
-            for (i = 0; i < n; i++)
-                s1[i] = (s1[i] + s2[i]) >> 1;
-        else
-            wv_dmix(s1, s2, d0, d1, n);
-    } else {
-        v->ph[1] += inc * n;                             /* (DTN's phase runs on: turned up, it starts without a jump in pitch) */
-        v->s[5] = (int32_t)v->ph[1];
-    }
-    if (bend > 0 || sync > 0 || v->s[6]) {               /* the DC tracker: the cycle's mean (~7 Hz) taken off */
-        int32_t dc = v->s[6];
-        for (i = 0; i < n; i++) {
-            dc += ((s1[i] << 8) - dc) >> 10;
-            s1[i] -= dc >> 8;
-        }
-        v->s[6] = !bend && !sync && dc > -1024 && dc < 1024 ? 0 : dc;   /* (off again once it has settled near 0) */
-    }
-    mg = *m;                                             /* the table gain on the amplitude ramp (the fades) */
-    mg.amp0 = mulq15(m->amp0, g0);
-    mg.amp1 = mulq15(m->amp1, g1);
-    for (i = 0; i < n; i++)
-        out[i] += voice_amp(s1[i], &mg, i);
-}
 
 /* STEPS (E7, P_E6): OFF, 2 .. 19 places the scan's position is rounded to (stored 0 = OFF, n = n + 1 places: no stored value is meaningless). 19 places = every frame of a table. POS, and every
  * route that moves it (the SHP routes: AMP DEST / ENV 2 / LFO 1 / LFO 2 SHP, the matrix's SHP, ENV 2 and LFO SHP depths, CYCLE, RAND per note), then lands on a place: a movement becomes a
@@ -940,9 +664,8 @@ static const engine_t ENG_WAVE = {
     },
     .presets = WAVE_PRESETS,
     .npresets = NELEM(WAVE_PRESETS),
-    .note_on = wave_note_on,
-    .render = wave_render,
-    .block = wave_block,
+    .note_on = eng_none_note_on,
+    .render = eng_none_render,
     .knob = {P_E1, P_E2, P_E3, P_REL},
     .uiord = WAVE_UIORD,
     .keep = 0xF3,                /* the scan place, the table gain, SYNC's phases, the DC blocker */

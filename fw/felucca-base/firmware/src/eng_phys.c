@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* L/RRY phase 4.4a: DESCRIPTOR ONLY. The engine's DSP (note-on, render and their helpers) is removed: the L/RRY voice (lrry_voice.c) is the only sound source. What stays is what the pages,
+ * the editor, the stores and budget.c read (names, the EDIT cards, presets, the voice cap and flags, the page graphs' helpers). The description below is of the engine as DUELL had it */
 /* PHYS: physical models. The DSP is ported to fixed point from DaisySP (Electrosmith, Emilie Gillet;
  * MIT: phys_dsp.c) and Rings' sympathetic strings (Emilie Gillet; MIT: phys_symp.c); this file is the
  * Felucca engine around them.
@@ -36,25 +38,12 @@
  * 256-sample sympathetic lines, 16-bit), 12 slots in all. Voice amplitude: the track's ADSR as for every
  * engine; the presets hold SUS at 127 so the model's own decay is heard and REL damps it after the key.
  * Cost (host, 8 notes asked = 3 voices): see the README and cpu_baseline.txt. */
-#include "phys_dsp.c"
-#include "phys_symp.c"
 
 enum { PM_MODAL, PM_STRING, PM_MEMB, PM_SYMP, PM_COUNT };
 #define PHYS_POLY 3
-/* output: model 1.0 -> this (VOICE_FS scale), then a soft knee; per model (a strike of all the modes in
- * phase peaks high but is short) */
-static const int32_t PHYS_GAIN[PM_COUNT] = {28000, 12000, 90000, 12000};
 
-typedef struct {
-    uint8_t model;               /* PM_* the state belongs to */
-    union {
-        px_modal_t m;            /* MODAL, MEMB */
-        px_string_t s;
-        px_symp_t y;
-    } u;
-} phys_slot_t;
 
-ENG_MEM_FITS("PHYS", sizeof(phys_slot_t) * PHYS_POLY);   /* (it sets ENG_MEM_PART) */
+
 
 static const char *const N_PHYS_MODEL[] = {"MODAL", "STRING", "MEMB", "SYMP"};
 static const char *const N_PHYS_CHORD[] = {"OCT", "5TH", "4TH", "MAJ", "MIN", "SUS", "7TH", "ROOT", 0};
@@ -72,132 +61,6 @@ static const param_desc_t *const PHYS_DESC[PM_COUNT][8] = {
 static const param_desc_t *phys_desc(const track_t *t, uint32_t k)
 {
     return k < 8u ? PHYS_DESC[(uint32_t)t->p[P_E0] % PM_COUNT][k] : 0;
-}
-
-/* SYMP: the sympathetic strings above the note, cents (CHRD's names) */
-static const int16_t PHYS_CHORDS[7][PX_NSYMP] = {
-    {-1200, 1200, 2400}, {700, 1200, 1900}, {500, 1200, 1700}, {400, 700, 1200},
-    {300, 700, 1200}, {200, 700, 1400}, {400, 700, 1000},
-};
-static const int8_t PHYS_DETUNE[PX_NSYMP] = {1, -1, 0};   /* 1/16 semitone (6 cents): the strings beat a little */
-
-static phys_slot_t *phys_slot_of(track_t *t, voice_t *v)
-{
-    uint32_t i;
-    if (t < &trk[0] || t >= &trk[NLIVE])
-        return 0;
-    i = (uint32_t)(v - t->v);
-    return i < PHYS_POLY ? (phys_slot_t *)ENG_MEM(t - trk) + i : 0;
-}
-
-/* a clean state for model md */
-static void phys_reset(phys_slot_t *S, uint32_t md, uint32_t seed)
-{
-    memset(&S->u, 0, sizeof S->u);                       /* (libc.c: a word at a time; the loop here was the voice start's biggest lump) */
-    S->model = (uint8_t)md;
-    seed |= 1u;
-    switch (md) {
-    case PM_STRING:
-    case PM_SYMP:                                        /* (the main string is the union's px_string_t) */
-        S->u.s.rng = seed;
-        S->u.s.src = 1u << 30;
-        break;
-    default:
-        S->u.m.rng = seed;
-        break;
-    }
-}
-
-static void phys_note_on(track_t *t, voice_t *v)
-{
-    phys_slot_t *S = phys_slot_of(t, v);
-    uint32_t md = (uint32_t)t->p[P_E0] % PM_COUNT;
-    if (!S)
-        return;
-    if ((!v->env && !v->env_out) || S->model != md)     /* a fresh voice (not a retrigger): from rest */
-        phys_reset(S, md, rng());
-    switch (md) {
-    case PM_MODAL:
-    case PM_MEMB:
-        S->u.m.trig = 1;                                 /* a retrigger strikes the ringing body again */
-        break;
-    default:                                             /* STRNG, SYMP */
-        S->u.s.trig = 1;
-        break;
-    }
-}
-
-/* SYMP: the sympathetic strings' pitches (cycles Q32) by CHRD: a chord above the note, or ROOT */
-static __attribute__((noinline)) void phys_symp_pitches(const track_t *t, const vmod_t *m, uint32_t *f)
-{
-    uint32_t c = (uint32_t)t->p[P_E1] >> 4, k;          /* 0..7 */
-    for (k = 0; k < PX_NSYMP; k++) {
-        int32_t p16 = PHYS_DETUNE[k];
-        p16 += c < 7u ? m->pitch16 + ((PHYS_CHORDS[c][k] * 41) >> 8)   /* cents -> 1/16 semitones (0.16) */
-                      : (48 + root_of(t) + (k == 1u ? 7 : k == 2u ? 12 : 0)) * 16;
-        f[k] = pitch_inc(clamp(p16, 0, 2047));
-    }
-}
-
-static void phys_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
-{
-    const int16_t *p = t->p;
-    phys_slot_t *S = phys_slot_of(t, v);
-    uint32_t md = (uint32_t)p[P_E0] % PM_COUNT, i, f0 = m->inc;
-    int32_t y[CTL], ax[CTL];
-    int32_t sh = m->shape - (64 << 8);                    /* SHP (DUELL): STRC, SYMP's BUZZ */
-    int32_t strc = (clamp((p[P_E1] << 8) + sh, 0, 127 << 8) * 516) >> 8, brit = clamp(p[P_E2] * 516, 0, 65536);   /* Q16 0..1 */
-    int32_t damp = p[P_E3] * 516, pos = p[P_E4], exc = p[P_E7] * 258;   /* exc Q15 */
-    int32_t bow = p[P_E6] * 206;                         /* BOW: Dust at up to 0.4 (DaisySP's sustain: 1) */
-    int32_t acc = clamp(p[P_E5] * v->vel * 4 + m->cutoff * 2, 0, 65536);   /* + the accent (velocity over 110): the model's own accent, up to 0.19 */   /* ACC at full velocity, Q16 */
-    int32_t g = PHYS_GAIN[md];
-    if (!S)
-        return;
-    if (n > CTL)
-        n = CTL;
-    if (S->model != md)                                  /* MODEL changed under a sounding note */
-        phys_reset(S, md, part_rand(t, &t->rngs));      /* (job 3: part 1 the shared generator, the others their own: voice.c part_rand) */
-    switch (md) {
-    case PM_MODAL: {
-        px_modal_blk_t B;
-        px_modal_block(&B, &S->u.m, f0, strc, brit, damp, acc, pos * 129, bow);   /* pos 0..1/4 */
-        px_modal_run(&B, &S->u.m, y, ax, n);
-        break;
-    }
-    case PM_MEMB: {
-        px_modal_blk_t B;
-        px_memb_block(&B, &S->u.m, f0, strc, brit, damp, acc, pos * 516, p[P_E6] * 6192);   /* BEND 0..12 st */
-        px_modal_run(&B, &S->u.m, y, ax, n);
-        break;
-    }
-    case PM_STRING: {
-        px_string_blk_t B;
-        px_string_block(&B, &S->u.s, f0, strc, brit, damp, acc, bow, pos * 516);   /* 0..1/2 period */
-        px_string_excite(&B, &S->u.s, ax, n);
-        px_string_run(&B, &S->u.s, ax, y, n);
-        break;
-    }
-    default: {                                           /* SYMP */
-        px_string_blk_t B;
-        uint32_t f[PX_NSYMP];
-        phys_symp_pitches(t, m, f);
-        px_string_block(&B, &S->u.y.s, f0, 16384 - ((clamp((p[P_E6] << 8) + sh, 0, 127 << 8) * 129) >> 8), brit, damp, acc,
-                        0, 0);                           /* BUZZ: STRC 0.25 .. 0 */
-        px_string_excite(&B, &S->u.y.s, ax, n);
-        px_string_run(&B, &S->u.y.s, ax, y, n);
-        px_symp_block(&S->u.y, f, brit, damp, pos * 516);
-        px_symp_run(&S->u.y, y, y, n);
-        break;
-    }
-    }
-    for (i = 0; i < n; i++) {
-        int32_t s = px_m(y[i] + px_m(ax[i], exc, 15), g, 20), a = s < 0 ? -s : s;
-        if (a > 24000) {                                 /* soft knee: only peaks saturate */
-            a = 24000 + (softclip(clamp(a - 24000, 0, 1 << 20) * 2) >> 1);
-            s = s < 0 ? -a : a;
-        }
-        out[i] += voice_amp(s, m, i) << 1;
-    }
 }
 
 /* MODAL partials by STRC: 34 harmonic, 70 1 : 2.83 : 5.48 : 8.90 (a free bar, a chime: 1 : 2.76 : 5.40 : 8.93),
@@ -232,11 +95,11 @@ static const engine_t ENG_PHYS = {
     },
     .presets = PHYS_PRESETS,
     .npresets = NELEM(PHYS_PRESETS),
-    .note_on = phys_note_on,
-    .render = phys_render,
+    .note_on = eng_none_note_on,
+    .render = eng_none_render,
     .knob = {P_E1, P_E2, P_E3, P_E4},
     .poly = PHYS_POLY,
     .desc = phys_desc,
-    .mem = sizeof(phys_slot_t) * PHYS_POLY,
+    .mem = 12888u,               /* (4.4a: the bytes its state had, sizeof(phys_slot_t) x PHYS_POLY: what a claim clears stays as it was; the state itself is gone) */
     .ufilt = 1,                 /* no filter of its own: the multimode filter (DUELL 0.2.9; voice.c uf_run: CUT RES MODE SLOPE, P_FREEA..D) */
 };

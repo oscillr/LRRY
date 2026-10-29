@@ -1316,9 +1316,7 @@ static BENCH_FN void bench_reset_phases(void)
         for (i = 0; i < NVOICE; i++)                   /* the voices that are not sounding: their leftovers (an oscillator keeps its phase from the note before) */
             if (!t->v[i].active)
                 memset(&t->v[i], 0, sizeof t->v[i]);
-        formant_nz[p] = 0;                             /* eng_formant.c: the part's breath-noise generator starts at its first note */
-    }
-    formant_used = 0;
+    }                                                  /* (L/RRY 4.4a: the engines' own state (VOICE's breath noise, WHEEL's rotary and bars, FM6's LFO) is gone with their DSP: nothing to reset) */
     memset(f2s, 0, sizeof f2s);                        /* chain_f2.c: filter 2's state, the TRIO-style cutoff drift and its generator `nst` per voice: seeded once (`if (!s->nst)`) and kept from note to note, so a test started on a
                                                          * voice that had played another patch drifted differently (benchsim: 11 'does not repeat after reset'; WAVE_J item 2 guessed filter 1; it is the chain's filter 2) */
     memset(cy_lin, 0, sizeof cy_lin);                  /* cycle.c (0.2.31): the CYCLE envelope's progress, value and stage per voice: a new note starts the rise from where the generator stands, so a test after another patch's started elsewhere */
@@ -1337,18 +1335,6 @@ static BENCH_FN void bench_reset_phases(void)
     memset(mx_sd, 0, sizeof mx_sd);
     memset(dist_x, 0, sizeof dist_x);                  /* SAT's follower (T0229: it follows the matrix-modulated SAT too, so it carries the test before's value) */
     memset(dist_live, 0, sizeof dist_live);
-    for (p = 0; p < NLIVE; p++) {                      /* WHEEL: the rotary's phases, speeds and share (the rotor turns without a note), the voices' leftovers */
-        drw_t[p].rph[0] = drw_t[p].rph[1] = 0;
-        drw_t[p].rsp[0] = drw_t[p].rsp[1] = 0;
-        drw_t[p].rwet = 0;
-        for (i = 0; i < NVOICE; i++)
-            if (!trk[p].v[i].active)
-                memset(&drw_v[p][i], 0, sizeof drw_v[p][i]);
-    }
-    for (p = 0; p < NLIVE; p++) {                      /* FM6's LFO (running without a note) */
-        fm6_lfo[p].phase = fm6_lfo[p].dstate = 0;
-        fm6_lfo[p].rnd = 0;
-    }
     BENCH_RESET_BUS(fx, hl);                           /* the effect buses: the chorus, the delay's modulation, the reverbs' drifts and write points */
     BENCH_RESET_BUS(fx_b, hl_b);
     fx.lo_lp = fx.lo_k = fx.lo_g = fx_b.lo_lp = fx_b.lo_k = fx_b.lo_g = 0;   /* the reverb's LOW CUT from rest (as snd_lines_clear): in the joined line the owner's M07 (LOW CUT 79) left its low-pass set and
@@ -1902,7 +1888,7 @@ static BENCH_FN void bench_morph_flat(uint32_t pi)     /* the part's MORPH off: 
     MORPH_LOCK();
     memcpy(mp->h[1][mp->top[1]], mp->base, P_COUNT);
     memcpy(mp->hx[1][mp->top[1] % XH], mp->base + XW_BASE, NX);
-    memcpy(mp->fh[1][mp->top[1]], mp->fb, NFM);
+    /* (L/RRY 4.4a: no FM6 patch bytes in the morph any more) */
     mp->seed[1][mp->top[1]] = 0;
     memset(mp->pin, 0, sizeof mp->pin);
     morph_build(mp);
