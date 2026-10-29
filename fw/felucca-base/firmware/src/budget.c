@@ -145,6 +145,14 @@ static const uint8_t BD_LR_MODEL[8] = {0, 0, 5, 20, 25, 0 /* SUPER: below */, 35
 #define BD_LR_DIRT 85u          /* a dirt unit (drive, shape, level, pan) */
 #define BD_LR_MS 20u
 #define BD_LR_SUB 25u
+/* L/RRY 4.3b, the split by voice: two ESTIMATES, nothing measured on the unit.
+ * BD_LR_CTL_PCT: the share of a voice's cost that is control work (envelope, glide, pitch, the matrix, lrry_voice_ctl) and stays on core 0 when the voice's audio goes to core 1. Measured on the Mac with the
+ * render stage switched off (8 voices, 3000 blocks, best of 5): 5.5 % for OSC 1 SAW alone, 2.3 % for LADDER + dirt, 2.2 % for the SUPER patch; 6 is used.
+ * BD_LR_HO0 / HO1: the hand-over a block, host instructions a sample: core 0 copies the 888-byte job context and hashes it (222 words), core 1 hashes it again and clears and reads the 256-byte accumulator;
+ * counted from the code at about 4 instructions a word and 32 samples a block (222 x 6 / 32 = 41 on core 0, 222 x 4 / 32 + 16 = 44 on core 1), rounded to 40 and 45. */
+#define BD_LR_CTL_PCT 6u
+#define BD_LR_HO0 40u
+#define BD_LR_HO1 45u
 #define BD_LR_FBMOD 10u         /* filter B's modulation (KEY TRK 2, ENV 2, LFO 1, LFO 2, a matrix route): the cutoff sum, once a block */
 static uint32_t bd_lr_osc(const int16_t *x, uint32_t o)   /* oscillator o (0, 1): its model's cost over a SAW */
 {
@@ -363,6 +371,29 @@ static void budget_solve2(const bd_t *b, uint32_t *out, uint32_t two)
         c[p] = r->on ? BD_U(r->eng + r->filt + r->ext) : 0;
         fx[p] = r->on ? BD_U(r->ins + r->sat + r->eq + r->misc + r->base) : 0;
     }
+#if LRRY_ENGINE
+    if (two) {                                          /* L/RRY 4.3b, the two-core rule BY VOICE (an ESTIMATE, nothing of it measured on the unit). The part's k notes sit on both cores' voices (voice.c VSLOT: ceil(k / 2) on
+                                                         * core 0's voices 0..3, floor(k / 2) on core 1's 4..7). Core 0 plays: the globals, the part's fixed work, its ceil(k / 2) voices whole, and of the other floor(k / 2) the control
+                                                         * work that stays on it (BD_LR_CTL_PCT of a voice) and the hand-over (BD_LR_HO0). Core 1 plays its floor(k / 2) voices (a voice less that control work) and BD_LR_HO1. Both loads must fit
+                                                         * the limit. The one-core number (bnotes1) is untouched. */
+        for (p = 0; p < BD_N; p++) {
+            uint32_t k, n0, n1, cc;
+            if (!b->p[p].on) {
+                out[p] = b->p[p].cap;
+                continue;
+            }
+            cc = (c[p] * BD_LR_CTL_PCT + 99u) / 100u;   /* the control work of a voice, kept on core 0 */
+            for (k = b->p[p].cap; k > 1u; k--) {
+                n1 = k / 2u;
+                n0 = k - n1;
+                if (g + fx[p] + n0 * c[p] + n1 * cc + (n1 ? BD_U(BD_LR_HO0) : 0u) <= lim && n1 * (c[p] - cc) + (n1 ? BD_U(BD_LR_HO1) : 0u) <= lim)
+                    break;
+            }
+            out[p] = k;
+        }
+        return;
+    }
+#else
     if (two) {                                          /* the two-core rule: each part on its own core, the globals on both paths (item 132, owner: the hand-over BUDGET_HO is not charged:
                                                          * COST-CAL's estimate of it was -28, nothing) */
         for (p = 0; p < BD_N; p++) {
@@ -374,6 +405,7 @@ static void budget_solve2(const bd_t *b, uint32_t *out, uint32_t two)
         }
         return;
     }
+#endif
     for (p = 0; p < BD_N; p++) {
         uint32_t n[2], k;
         for (k = b->p[p].cap; k > 1u; k--) {            /* (the most that fits: a pair with more notes costs more) */

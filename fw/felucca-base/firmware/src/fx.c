@@ -2851,7 +2851,7 @@ static void mix_part(track_t *t, uint32_t n, const blockstate_t *bs)
 }
 
 #if DUELL_TWOCORE
-#include "twocore_run.c"                             /* DUELL TWO-CORE stage 1: the job core 1 plays (part 2) and the runner (docs/TWOCORE_STAGE1.md) */
+#include "twocore_run.c"                             /* DUELL TWO-CORE, split by voice (L/RRY 4.3b): the job core 1 plays (voices 4..7) and the runner */
 #endif
 
 /* GATHER stage, after the last part and before mix_sends: the parts' accumulators that were written this block (pacc_on; in the order pacc[0], pacc[1] ..) summed
@@ -3231,14 +3231,14 @@ static void mix_block(int32_t *out, uint32_t n)
     }
     blk_snap(&bs, sp_tap);                              /* the shared control state, once: the parts only read it */
 #if DUELL_TWOCORE
-    tcr_begin(&bs, n);                                  /* DUELL TWO-CORE stage 1: part 2 goes to core 1 (twocore_run.c), part 1 stays here */
+    tcr_begin(n);                                       /* DUELL TWO-CORE, by voice (twocore_run.c): voices 4..7 go to core 1 from inside the part's voice stage (voice.c lrry_render_stage), voices 0..3 stay here */
     {
         int mo = morph_begin(&trk[0], 1);
         mix_part(&trk[0], n, &bs);
         if (mo)
             morph_end(&trk[0]);
     }
-    tcr_part2(&bs, n);                                  /* (core 1's part 2 awaited, or core 0 plays it, or it is silent) */
+    tcr_end();                                          /* (the block counted) */
 #else
     for (i = 0; i < NLIVE; i++) {                      /* (DUELL: tracks 3..4 do not render) */
         int mo = morph_begin(&trk[i], 1);               /* DUELL MORPH: the fader's values into t->p (morph.c) */

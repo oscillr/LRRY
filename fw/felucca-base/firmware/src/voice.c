@@ -20,6 +20,50 @@
 static lrry_pp_t lrry_pp[NLIVE];                        /* the part's values of this block (lrry_decode; read only while its voices render) */
 static lrry_vs_t lrry_vs[NLIVE][NVOICE];                /* one voice's state: written only while that voice renders (4.3b: voices 0-3 and 4-7 on two cores touch disjoint elements) */
 
+/* L/RRY phase 4.3b: the split BY VOICE. Voices 0..LRRY_C1_FIRST-1 are core 0's, LRRY_C1_FIRST..NVOICE-1 are core 1's (twocore_run.c). track_render does the control work of every voice on
+ * core 0, in voice order, as before (envelope, glide, pitch, matrix, lrry_voice_ctl: it writes track_t, so it is never split) and leaves each voice's pair of numbers in lrj (what lrry_voice reads:
+ * its lrry_vc_t and its vmod_t). The audio work, lrry_voice, is then done by lrry_render_stage: all eight on core 0 (one core, or core 1 down / late / paused), or voices 0-3 on core 0 and 4-7 on core 1.
+ * The sum of the voices is integer addition, so it does not depend on the order or on which core added what: the two ways give the same samples. */
+#define LRRY_C1_FIRST (NVOICE / 2u)
+#define LRRY_C1_N (NVOICE - LRRY_C1_FIRST)
+typedef struct {
+    lrry_vc_t vc[NVOICE];
+    vmod_t m[NVOICE];
+    uint32_t mask;                                      /* bit i: voice i renders this block */
+} lrry_job_t;
+static lrry_job_t lrj;                                  /* core 0's: written by track_render's loop, read by the render stage */
+#if LRRY_ENGINE
+/* The pairs of voices a part uses first: the allocator's slot j (0, 1, 2 ..) is voice VSLOT(j), so the slots alternate between core 0's voices (0..3) and core 1's (4..7): n notes put ceil(n / 2) voices on core 0 and
+ * floor(n / 2) on core 1 whatever order they end in (the budget's two-core number counts on it). Slots 0..NVOICE-1 are all the voices, so with the full 8 nothing changes but the order. */
+#define VSLOT(j) ((uint32_t)((j) & 1u ? LRRY_C1_FIRST + ((j) >> 1) : (j) >> 1))
+#define VSINV(v) ((uint32_t)((v) >= LRRY_C1_FIRST ? 2u * ((v) - LRRY_C1_FIRST) + 1u : 2u * (v)))   /* voice -> slot */
+#else
+#define VSLOT(j) ((uint32_t)(j))
+#define VSINV(v) ((uint32_t)(v))
+#endif
+#if LRRY_ENGINE
+#if DUELL_TWOCORE
+/* twocore_run.c (included after this file): the hand-over of voices LRRY_C1_FIRST.. to core 1 */
+static uint32_t tcr_voices_post(uint32_t ti, uint32_t n);
+static void tcr_voices_collect(uint32_t ti, int32_t *out, int32_t *outR, uint32_t n);
+static uint32_t tcr_open_now(void);
+#endif
+/* a new voice's audio state is cleared at its note-on (voice_start). While core 1 may still be writing voices LRRY_C1_FIRST.. (a job that is open: it was late), that clear waits: lrry_pend_apply */
+static uint8_t lrry_pend[NLIVE], lrry_pend_note[NLIVE][NVOICE];
+static void lrry_state_new(uint32_t pp, uint32_t vi, uint32_t note)
+{
+#if DUELL_TWOCORE
+    if (vi >= LRRY_C1_FIRST && tcr_open_now()) {
+        lrry_pend[pp] |= (uint8_t)(1u << vi);
+        lrry_pend_note[pp][vi] = (uint8_t)note;
+        return;
+    }
+#endif
+    lrry_pend[pp] &= (uint8_t)~(1u << vi);
+    lrry_state_clear(&lrry_vs[pp][vi], note);
+}
+#endif
+
 static uint32_t vage;                                   /* voice ages: one clock for every part */
 /* an LFO's WAVE (N_LWAVE) at phase ph; rnd: its S&H value of the cycle */
 static int32_t lfo_wave_of(int32_t wave, uint32_t rnd, uint32_t ph)
@@ -313,8 +357,8 @@ static void voice_trim(track_t *t)
         return;
     np = trk_nvoice(t);
     for (i = np; i < NVOICE; i++)
-        if (t->v[i].active && t->v[i].stage != 4u)
-            voice_kill(&t->v[i]);
+        if (t->v[VSLOT(i)].active && t->v[VSLOT(i)].stage != 4u)
+            voice_kill(&t->v[VSLOT(i)]);
 }
 
 #if DUELL_TWOCORE
@@ -381,25 +425,25 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     int32_t bd = 0x7FFFFFFF;
     voice_trim(t);
     for (i = 0; i < np; i++) {
-        if (t->v[i].active && t->v[i].note == note)
-            return voice_reuse(t, &t->v[i]);
-        nfree += !t->v[i].active;
+        if (t->v[VSLOT(i)].active && t->v[VSLOT(i)].note == note)
+            return voice_reuse(t, &t->v[VSLOT(i)]);
+        nfree += !t->v[VSLOT(i)].active;
     }
     if (nfree && voices_busy() >= VPOOL) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, 0, &vp);
-        if (k < np && vp == t)
+        if (vp == t && k < NVOICE && VSINV(k) < np)
             return &t->v[k];                            /* our own: restart it in place (no click) */
         if (k < NVOICE)
             voice_kill(&vp->v[k]);
     }
     if (t->p[P_GLIDE]) {                                /* (T0227, owner: the stored VOICE ALLOCATION is ignored: ROTATE always; with GLIDE the free voice nearest in pitch, as ever) */
         for (i = 0; i < np; i++) {
-            int32_t d = t->v[i].pitch_cur - (int32_t)note * 16;
-            if (t->v[i].active)
+            int32_t d = t->v[VSLOT(i)].pitch_cur - (int32_t)note * 16;
+            if (t->v[VSLOT(i)].active)
                 continue;
             d = d < 0 ? -d : d;
-            if (!t->v[i].pitch_cur)
+            if (!t->v[VSLOT(i)].pitch_cur)
                 d = 0x7FFFFFF0;                          /* never played: last choice */
             if (d < bd) {
                 bd = d;
@@ -409,24 +453,24 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     } else {
         for (i = 0; i < np && best == np; i++) {
             uint32_t k = (t->rr + i) % np;
-            if (!t->v[k].active)
+            if (!t->v[VSLOT(k)].active)
                 best = k;
         }
         t->rr = (uint8_t)((best == np ? t->rr : best) + 1u) % np;
     }
     if (best < np)
-        return &t->v[best];
+        return &t->v[VSLOT(best)];
     for (i = 0; i < np; i++)                             /* the lowest held note is protected */
-        if (t->v[i].gate && (low == np || t->v[i].note < t->v[low].note))
+        if (t->v[VSLOT(i)].gate && (low == np || t->v[VSLOT(i)].note < t->v[VSLOT(low)].note))
             low = i;
     for (i = 0; i < np; i++)                             /* oldest released (not one fading out for another part) */
-        if (!t->v[i].gate && t->v[i].stage != 4u && (best == np || t->v[i].age < t->v[best].age))
+        if (!t->v[VSLOT(i)].gate && t->v[VSLOT(i)].stage != 4u && (best == np || t->v[VSLOT(i)].age < t->v[VSLOT(best)].age))
             best = i;
     if (best == np)
         for (i = 0; i < np; i++)                         /* oldest held, not the bass */
-            if (i != low && (best == np || t->v[i].age < t->v[best].age))
+            if (i != low && (best == np || t->v[VSLOT(i)].age < t->v[VSLOT(best)].age))
                 best = i;
-    return voice_reuse(t, &t->v[best == np ? 0 : best]);
+    return voice_reuse(t, &t->v[VSLOT(best == np ? 0 : best)]);
 }
 
 /* glide: RATE = a fixed speed, TIME = the same time for any interval */
@@ -530,7 +574,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     e->note_on(t, v);
 #if LRRY_ENGINE
     if (!sounding)                                      /* L/RRY: a new voice starts from rest; a retrigger or steal keeps phases and filter states, as above */
-        lrry_state_clear(&lrry_vs[PART_OF(t)][(uint32_t)(v - t->v)], note);
+        lrry_state_new(PART_OF(t), (uint32_t)(v - t->v), note);
 #endif
     if (sounding && !e->sampled) {                     /* retrigger / steal: keep phases and filter */
         v->ph[0] = ph0;                                 /* states (resetting them clicks) */
@@ -558,7 +602,7 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
     uint32_t mode = (uint32_t)t->p[P_VOICE], nv = mode == V_UNISON ? trk_nvoice(t) : 1u, i;
     voice_trim(t);
     for (i = 0; i < nv; i++) {
-        voice_t *v = &t->v[i];
+        voice_t *v = &t->v[VSLOT(i)];
         int32_t k = 2 * (int32_t)i - (int32_t)(nv - 1u);   /* -7 .. 7 */
         if (nv > 1u && nv < NVOICE)
             k = k * (NVOICE - 1) / (int32_t)(nv - 1u);      /* fewer voices: the outer ones as wide */
@@ -707,7 +751,7 @@ static int vs_sounding(const track_t *t, uint32_t note)
 {
     uint32_t i, np = trk_nvoice(t);
     for (i = 0; i < np; i++)
-        if (t->v[i].active && t->v[i].stage != 4u && t->v[i].note == note)
+        if (t->v[VSLOT(i)].active && t->v[VSLOT(i)].stage != 4u && t->v[VSLOT(i)].note == note)
             return 1;
     return 0;
 }
@@ -1199,6 +1243,37 @@ static void tune_get(int32_t *u, int32_t *f)
     *u = tune_u;
     *f = tune_f;
 }
+
+#if LRRY_ENGINE
+/* voices first..last-1 of the mask, from lrj: the kernel adds each pair to out / outR */
+static void lrry_render_range(uint32_t ti, uint32_t first, uint32_t last, int32_t *out, int32_t *outR, uint32_t n)
+{
+    uint32_t i;
+    for (i = first; i < last; i++)
+        if ((lrj.mask >> i) & 1u)
+            lrry_voice(&lrry_pp[ti], &lrj.vc[i], &lrry_vs[ti][i], &lrj.m[i], out, outR, n);
+}
+static void lrry_render_stage(uint32_t ti, int32_t *out, int32_t *outR, uint32_t n)
+{
+#ifdef LRRY_MASK_HOOK
+    LRRY_MASK_HOOK(ti, &lrj.mask);                      /* (a test may silence voices in chosen blocks; not defined in the firmware) */
+#endif
+#if DUELL_TWOCORE
+    uint32_t i;
+    if (lrry_pend[ti] && !tcr_open_now())
+        for (i = LRRY_C1_FIRST; i < NVOICE; i++)
+            if ((lrry_pend[ti] >> i) & 1u) {
+                lrry_pend[ti] &= (uint8_t)~(1u << i);
+                lrry_state_clear(&lrry_vs[ti][i], lrry_pend_note[ti][i]);
+            }
+    tcr_voices_post(ti, n);                             /* core 1 gets voices 4..7 when it can */
+    lrry_render_range(ti, 0, LRRY_C1_FIRST, out, outR, n);
+    tcr_voices_collect(ti, out, outR, n);               /* its sums added, or core 0 plays them */
+#else
+    lrry_render_range(ti, 0, NVOICE, out, outR, n);
+#endif
+}
+#endif
 /* render one block of a part into out (cleared here); returns the voices rendered */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
@@ -1242,6 +1317,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     int16_t pe_new[8];
     for (i = 0; i < n; i++)
         out[i] = outR[i] = 0;
+    lrj.mask = 0;
     if (mod->on && mod->ldep < 32767)                     /* the matrix's DEPTH (mod.c) */
         lfo = mulq15(lfo, mod->ldep);
     lfo = mx_slew(t, NMSLOT, lfo);                      /* (hunt1: LFO 1's value for its own depths (VIB, CUT, SHP, AMP) moves at most MX_SLEW a block like a matrix source's: a saw's or a square's edge, an S&H step or
@@ -1346,7 +1422,9 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
                 lrry_dec = 1;
             }
             lrry_voice_ctl(t, v, &m, &lrry_pp[ti], clamp(p[P_FREEA], 0, UF_STEPS) << 8, ti, i, &lc);
-            lrry_voice(&lrry_pp[ti], &lc, &lrry_vs[ti][i], &m, out, outR, n);
+            lrj.vc[i] = lc;                             /* 4.3b: the audio work comes after the loop (lrry_render_stage), on one core or two */
+            lrj.m[i] = m;
+            lrj.mask |= 1u << i;
             nr++;
             continue;
         }
@@ -1395,6 +1473,10 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         VSTEP();
         nr++;
     }
+#if LRRY_ENGINE
+    if (lrj.mask)
+        lrry_render_stage(ti, out, outR, n);
+#endif
     if (spread_on)
         spread_sum(out, spread_buf);                                /* out: every voice; spread_buf: the left ones */
     if (fade) {

@@ -327,19 +327,8 @@ for t in $want; do case $t in
              partindep_mut "the parts share one morph window (morph.c)" firmware/src/morph.c 's/t->mwon/trk[0].mwon/g; s/t->mwpi/trk[0].mwpi/g' &&
              partindep_mut "the parts share one matrix window (mod.c MODW)" firmware/src/core.h 's/#define MODW(t) ((t)->mdw)/#define MODW(t) (trk[0].mdw)/' ;;
   duckpart) $CC -O1 "-DFELUCCA_VERSION=\"$FV\"" -o $OUT/duckpart_test tests/duckpart_test.c -lm || { echo "== compile"; echo "   FAIL (does not compile)"; fail=1; false; } && run duckpart $OUT/duckpart_test ;;
-  twocore) $CC -O1 "-DFELUCCA_VERSION=\"$FV\"" -o $OUT/twocore_sim tests/twocore_sim.c -lm -lpthread || { echo "== compile"; echo "   FAIL (does not compile)"; fail=1; false; } && run twocore $OUT/twocore_sim &&
-             twocore_mut "the parts share one block scratch (fx.c part_voice)" firmware/src/fx.c 's/int32_t \*b = pscr\[PART_OF(t)\]\.buf;/int32_t *b = pscr[0].buf;/' &&
-             twocore_mut "the parts share one matrix window (core.h MODW)" firmware/src/core.h 's/#define MODW(t) ((t)->mdw)/#define MODW(t) (trk[0].mdw)/' &&
-             twocore_mut "the parts share the envelope's ENV SYNC steps (voice.c)" firmware/src/voice.c 's/((track_t \*)t)->esk)/trk[0].esk)/' &&
-             twocore_mut "mix_gather reads part 2 while it is silent (twocore_run.c's skip)" firmware/src/fx.c 's/if (p == 1u \&\& tcr.skip2)/if (0)/' &&
-             twocore_mut "a stopped core 1's voices are not faded out (twocore_run.c fade2)" firmware/src/twocore_run.c 's/tcr.fade2 = 1;/tcr.fade2 = 0;/' &&
-             twocore_mut "BENCHT4: a very late block whose job finished pauses again (twocore_run.c TCR_VLATE_RUN 1)" firmware/src/twocore_run.c 's/#define TCR_VLATE_RUN 0u/#define TCR_VLATE_RUN 1u/' &&
-             twocore_mut "BENCHT4: the window rule is on by default again (twocore_run.c TCR_VWIN_K 8)" firmware/src/twocore_run.c 's/#define TCR_VWIN_K 0u/#define TCR_VWIN_K 8u/' &&
-             twocore_mut "BENCHT4: a real fault (a job that gave no answer to the take) no longer pauses the jobs (twocore_run.c)" firmware/src/twocore_run.c 's|tcr_pause(TC_TICKS(), TCR_PW_FAULT); /\* \[no answer\] \*/||' &&
-             twocore_mut "BENCHT4: no real fault pauses the jobs (twocore_run.c tcr_pause)" firmware/src/twocore_run.c 's/    if (!tcr.paused) {/    if (!tcr.paused \&\& why != TCR_PW_FAULT) {/' &&
-             twocore_mut "BENCHT4: a job not finished by its wait limit (a silent block) no longer pauses the jobs (twocore_run.c)" firmware/src/twocore_run.c 's|tcr_pause(TC_TICKS(), TCR_PW_FAULT); /\* \[silent\] \*/||' &&
-             twocore_mut "BENCHT4: core 0 waits for core 1 to the end of the half, not to the wait limit (twocore_run.c tcr_part2)" firmware/src/twocore_run.c 's/a, lim = tcr.lim, t1;/a, lim = tcr.t0 + TCR_HALF_TICKS, t1;/' ;;
-  twocore_tsan) $CC -O1 -g -fsanitize=thread "-DFELUCCA_VERSION=\"$FV\"" -o $OUT/twocore_tsan tests/twocore_sim.c -lm -lpthread || { echo "== compile"; echo "   FAIL (does not compile; ThreadSanitizer missing?)"; fail=1; false; } && run twocore_tsan sh -c "for s in \${TSAN_SCENES:-0 8}; do TSAN_OPTIONS=halt_on_error=1 $OUT/twocore_tsan \$s -tsan || exit 1; done" ;;
+  twocore) (cd felucca-base && ../onepart.sh 1 1 lrry_split && MUT=1 tests/lrry_split.sh) && echo "   (L/RRY 4.3b: the split by voice; the old by-part mutants are gone with the by-part code: tests/twocore_mut.sh)" ;;
+  twocore_tsan) (cd felucca-base && cc -O1 -g -w -fsanitize=thread -DHOST_MIX_FOLLOWS_MASTER=1 -DDUELL_TEST_MODE=1 -Ibuild/gen -Ifirmware/src -Itests -DNPART=1 -DNSHOWN=1 "-DFELUCCA_VERSION=\"$FV\"" -o $OUT/twocore_tsan tests/twocore_sim.c -lm -lpthread && for s in ${TSAN_SCENES:-0 1}; do TSAN_OPTIONS=halt_on_error=1 $OUT/twocore_tsan $s -tsan || exit 1; done) ;;
   tcmeas) $CC -O1 -DTC_MEAS=1 "-DFELUCCA_VERSION=\"$FV\"" -o $OUT/twocore_meas tests/twocore_sim.c -lm -lpthread || { echo "== compile"; echo "   FAIL (does not compile)"; fail=1; false; } && run tcmeas $OUT/twocore_meas;
              MUTFLAGS=-DTC_MEAS=1
              twocore_mut "BENCHT2: core 1 stamps the end of a job before it ran it (twocore.h t_end)" firmware/src/twocore.h 's/te = TC_TICKS();/te = ts;/';

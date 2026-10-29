@@ -1,37 +1,31 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 OSCILL/R (DUELL). Part of DUELL, a modified version of Felucca. */
-/* DUELL TWO-CORE, stage 1 (DUELL_TWOCORE=1 only; docs/TWOCORE_STAGE1.md "Job 5"): the job core 1 plays, and the runner core 0 calls every block.
- * Included by fx.c after mix_part (it needs the stages, mixpart_t and blockstate_t) and before mix_gather and mix_block (they read tcr.skip2 and call the
- * runner). Stage 1 = core 1 plays part 2 (voices, part effects, part mix into its own pscr / pacc / track); core 0 plays part 1, then waits for part 2 or
- * takes it over, then gathers, sends, master. Bus B (DUEL) stays on core 0.
+/* DUELL TWO-CORE, split BY VOICE (L/RRY phase 4.3b; DUELL_TWOCORE=1 only). Was: core 1 plays part 2 (DUELL's split by part). Now there is ONE part and the voices are split:
+ * core 0 plays voices 0..3 and everything else (control of all eight voices, the part's mix, gather, sends, master); core 1 plays voices 4..7, one job a block. The proven model is
+ * host/lrry_split.h; this file keeps DUELL's protocol (twocore.h: the words, the sequence numbers, the check value, core 1 answers every job exactly once) and its runner (deadline, the three
+ * cases when core 1 is not done, the wait limit, pausing, the fallback to one core) and changes WHAT a job is.
  *
- * THE JOB (tc_job_run, core 1, called by tc_c1_step after its claim): the stages of mix_part / tests/twocore_sim.c run_part in their order. Its inputs are a
- * static context core 0 fills before tc_post (tc_ctx: the block's snapshot), not a pointer into core 0's stack; n and a 16-bit hash of the snapshot are in
- * arg. A snapshot that does not fit its hash (read wrong) runs nothing and is refused as a wrong check value is: core 1 writes bad_job / bad (its own
- * words), still answers done, and core 0 sees the refusal at the done word (tcr_part2).
+ * THE JOB (tc_job_run, core 1, called by tc_c1_step after its claim): lrry_voice for each of voices 4..7 whose bit is set in tc_ctx.mask, into core 1's OWN stereo accumulator (tc_acc, int32 L / R).
+ * Everything core 1 reads is the block copy in tc_ctx (the decoded patch lrry_pp_t, the four voices' lrry_vc_t and vmod_t), written by core 0 before tc_post; a 16-bit hash of the whole
+ * copy is in arg with n; a copy that does not fit its hash (read wrong) runs nothing and is refused like a wrong check value. Everything core 1 writes is tc_acc, the audio state of its own
+ * voices (lrry_vs[0][4..7]) and their COMB lines (engine memory slices of voices 4..7). It reads and writes no track_t, no matrix or LFO state and no per-voice control state: the control work of
+ * all eight voices is done by core 0 in track_render before the job is posted (it writes track_t, so it cannot be split).
  *
- * THE RUNNER (core 0, in mix_block): tcr_begin after the block's snapshot, part 1's stages, tcr_part2, then gather. The sequence of docs/TWOCORE_STAGE1.md
- * section 2.4: post when core 1 is up, not paused, not parked and the last job is closed (else core 0 plays part 2 itself, in the one-core order: the same
- * samples); wait for done until the DEADLINE; not done: take it back, and by core 1's answer
- *   yld      core 0 plays part 2 itself, no click                              "late"       (a run of TCR_LATE_RUN late blocks pauses the jobs)
- *   claim    wait for done until the WAIT LIMIT tcr.lim (BENCHT4; up to BENCHT3 the end of the half): the latest moment at which core 1's done word still leaves core 0
- *            the globals of this block and every later block of the half at the whole one-core cost (= the half's end less those = the deadline's cap + part 2's own cost)
- *     done   fine                                                              "very late"  (BENCHT4: never a pause by itself, however many in a row or in a window; counted as
- *                                                                               "very late without a pause", tcs.vlate_ok. The BENCHT3 run / window rules are off by default and
- *                                                                               can be switched on for a diagnosis: bench vrun N, bench vwin K [MS])
- *     not    part 2 silent this block (core 0 touches nothing of part 2: tcr.skip2, mix_gather skips it); the jobs pause (a fault); part 2 stays silent
- *            until the open job is done, then core 0 plays it (the late job's sums are thrown away). This is also the answer to a job that would make core 0 miss its half
- *   refused  a strike (BADJOB), core 0 plays part 2
- *   nothing  (no answer within TCR_ANSWER_US) part 2 silent, the jobs pause; tc_watch stops core 1 after TC_HANG_MS without a beat
- * A real fault (refused job, a word ahead, a refused snapshot): tc_fail, a strike, core 0 plays part 2 from then on; if core 1 never claimed the open job
- * part 2 continues untouched, else its voices fade out first (tcr.fade2: voice_kill) and it starts cleanly. Lateness is never a strike.
- * Pauses by reason (tcs.pause_*): a real fault (wrong answer, refused, no answer, a silent block, a job not finished by its wait limit), a run of very late blocks and K very
- * late blocks inside a time window (both OFF by default since BENCHT4), a run of late blocks (4 in a row: core 1 does not pick up jobs; never seen on the unit).
- * THE FLOOR (BENCHT3, TC_MEAS builds, switchable): the deadline is not earlier than now + core 1's recent maximum run time (two buckets of 128 blocks) + the slack, and not
- * later than core 0's own latest moment (the table's deadline plus the slack); if now + that run time is already past the latest moment, no job is posted ("nofit": own
- * because of the floor, not a fault, core 0 plays part 2 now, the output is the one-core output).
- * Pausing: core 1 stays alive in its loop (a stopped core 1 cannot be started again before the next power-on); the jobs resume after TCR_CALM_MS.
- * Nothing here runs per sample: a few tests and, at the post, a hash of 40 bytes and the voice count of the two parts. */
+ * THE RUNNER (core 0): tcr_begin (block start: settle the old job, pause / resume, trim, decide whether a job may be posted), then inside track_render's lrry_render_stage: tcr_voices_post
+ * (the deadline, copy, tc_post), core 0 renders voices 0..3, tcr_voices_collect (wait for done until the DEADLINE; not done: take it back, and by core 1's answer
+ *   yld      core 0 plays voices 4..7 itself, no click                           "late"       (a run of TCR_LATE_RUN late blocks pauses the jobs)
+ *   claim    wait for done until the WAIT LIMIT tcr.lim: the latest moment at which core 1's done word still leaves core 0 the rest of this block and every later block of the half at the whole one-core cost
+ *     done   fine, tc_acc is added                                                "very late"  (never a pause by itself, counted as very late without a pause, tcs.vlate_ok)
+ *     not    voices 4..7 silent this block (core 0 touches nothing of them: tcr.skip2); the jobs pause (a fault); they stay silent until the open job is done
+ *   refused  a strike (BADJOB), core 0 plays voices 4..7
+ *   nothing  (no answer within TCR_ANSWER_US) voices 4..7 silent, the jobs pause; tc_watch stops core 1 after TC_HANG_MS without a beat)
+ * then tcr_end (the block counter). The sum is integer addition: the output with the job done in time, taken back, waited for, or never posted is the same, bit for bit. Only the silent
+ * blocks (a fault) differ from the one-core output, and they are counted.
+ * A real fault (refused job, a word ahead, a refused copy): tc_fail, a strike, core 0 plays voices 4..7 from then on; if core 1 had claimed the open job the voices fade out first (tcr.fade2: voice_kill at
+ * the next block's start) because their audio state may be half written. Lateness is never a strike.
+ * A voice's audio state is cleared at its note-on (lrry_state_new). While a job is open that clear waits (voice.c lrry_pend), so core 0 never writes voices 4..7's state while core 1 may.
+ * No job is posted in a block where voices 4..7 have nothing to render (silence, up to four notes).
+ * Pausing: core 1 stays alive in its loop (a stopped core 1 cannot be started again before the next power-on); the jobs resume after TCR_CALM_MS. */
 
 /* ---------------------------------------------------------------- the constants --- */
 #define TCR_FRAME_TICKS 544u            /* TIMER4 ticks per I2S frame (audio.c DAC_TICKS: 24 MHz / 44,117.6 Hz) */
@@ -84,8 +78,7 @@ static tcm_cfg_t tcm_cfg = { TCR_SLACK_TICKS, TCR_CALM_TICKS, TCR_LATE_RUN, TCR_
 _Static_assert(TCR_VWIN_K <= TCR_VWIN_MAX && (TCR_VWIN_MAX & (TCR_VWIN_MAX - 1u)) == 0, "twocore_run.c: the window's ring");
 
 _Static_assert(HALF_FRAMES % CTL == 0 && TCR_BLOCKS >= 1, "twocore_run.c: a half is whole blocks");
-_Static_assert(NLIVE == 2, "twocore_run.c: stage 1 plays part 1 on core 0 and part 2 on core 1");
-_Static_assert(sizeof(blockstate_t) % 4u == 0, "twocore_run.c: the snapshot's hash reads whole words");
+_Static_assert(NLIVE == 1 && NVOICE == 8 && LRRY_C1_N == 4u, "twocore_run.c: one part, voices 0..3 on core 0 and 4..7 on core 1");
 
 /* the budget's cost table (budget.c, included after fx.c; budget.h declares the functions): the deadline reads part 2's cost at its current settings */
 #include "budget.h"
@@ -116,17 +109,20 @@ typedef struct {
     uint32_t job;               /* the job posted this block (0: none) */
     uint32_t open;              /* the last job posted that is not known to be closed (core 1 may still write part 2) */
     uint32_t pause_t;           /* when the jobs paused */
-    uint32_t c1f, c1v, c2f, c2v, g;   /* the cost table's items (1/100 %): fixed and a voice, part 1 and part 2, the globals; read at a half's first block */
-    uint32_t t1f, t1v, t2f, t2v, tg;  /* DUELL 1.1 item 142: the same items at their true cost (ceil(x * 100 / BUDGET_DL_MARGIN), as tcr_deadline_true), for the wait limit */
+    uint32_t c1f, c1v, g;       /* the cost table's items (1/100 %): the part's fixed and a voice, the globals; read at a half's first block */
+    uint32_t t1f, t1v, tg;      /* DUELL 1.1 item 142: the same items at their true cost (ceil(x * 100 / BUDGET_DL_MARGIN), as tcr_deadline_true), for the wait limit */
     uint8_t blk;                /* the block in the half */
     uint8_t t0_ok, cost_ok;
-    uint8_t skip2;              /* part 2 is silent this block and core 1 may still write it: mix_gather must not read it */
+    uint8_t skip2;              /* voices 4..7 are silent this block and core 1 may still write tc_acc: nothing of it is added */
+    uint8_t go;                 /* a job may be posted this block (tcr_begin: core 1 up, not parked, not paused, no job open) */
+    uint8_t a_lo, a_hi;         /* voices rendering this block on core 0's side (0..3) and core 1's side (4..7) */
+    uint8_t got;                /* tcr_voices_collect ran this block (the block is counted) */
     uint8_t paused;
     uint16_t late_run, vlate_run;   /* late / very late blocks in a row (the runtime settings go up to 1000) */
     uint8_t vw_i, vw_n;         /* BENCHT3: the ring of the times of the last very late blocks (the window rule): the next slot, and how many are valid */
     uint32_t vw_t[TCR_VWIN_MAX];
     uint8_t fade2;              /* part 2 may be half written (core 1 stopped in a claimed job): fade its voices out before core 0 plays it */
-    uint8_t trim;               /* bit per part: notes above the part's number to fade at once (tc_trim_poll asks, the next block does it) */
+    uint8_t trim;               /* bit 0: notes above the part's number to fade at once (tc_trim_poll asks, the next block does it) */
     uint8_t trim_on;            /* the poll saw the condition (so it asks once) */
     uint8_t two;                /* DUELL 1.1 item 90: the two-core NOTES rule is in force (read at a half's first block with the costs): the later blocks count core 0's own share only */
     uint8_t nott;               /* item 90: this block's job may not be taken back (the take-over no longer fits the half): core 1 finishes it, or part 2 is silent */
@@ -147,10 +143,10 @@ static tcr_t tcr TC_BSS;
  * its half, when the runner settles it at a later block. A job core 0 took back (late) or that was refused has no figures.
  * Eight bins each, edges in us:  delay <2 <5 <10 <25 <50 <100 <250 >=250;  run <100 <150 <200 <300 <400 <600 <900 >=900;  margin <-500 <-100 <0 <100 <250 <500 <1000 >=1000.
  * Cleared by the audio interrupt itself at the next block after the main loop sets tcm.clr (bench run does), so the figures are those of one test. */
-enum { TCM_OWN_DOWN, TCM_OWN_PARK, TCM_OWN_PAUSE, TCM_OWN_DL, TCM_OWN_FL, TCM_OWN_N };   /* no job because core 1 is down / a flash park / paused / the deadline was already past / (BENCHT3) the floor said core 1's measured run time cannot fit before the latest deadline */
+enum { TCM_OWN_DOWN, TCM_OWN_PARK, TCM_OWN_PAUSE, TCM_OWN_DL, TCM_OWN_FL, TCM_OWN_NOV, TCM_OWN_N };   /* no job because core 1 is down / a flash park / paused / the deadline was already past / (BENCHT3) the floor said core 1's measured run time cannot fit before the latest deadline / voices 4..7 had nothing to render */
 #define TCM_NB 8u
 #define TCM_NEV 16u
-typedef struct { uint32_t blk, at, a1, a2; int32_t sd, rt, mg; } tcm_ev_t;     /* a very late job: the block in the half, the block count since the test's start, voices sounding (part 1, part 2), ticks */
+typedef struct { uint32_t blk, at, a1, a2; int32_t sd, rt, mg; } tcm_ev_t;     /* a very late job: the block in the half, the block count since the test's start, voices rendering (core 0's side, core 1's), ticks */
 typedef struct {
     uint32_t clr;                       /* the main loop asks for a clear (written there, taken here) */
     uint32_t b0;                        /* tcs.blocks at the clear */
@@ -252,15 +248,21 @@ static void tcm_clear(void)
 #ifndef TC_CTX_SECT
 #define TC_CTX_SECT                     /* (the unit: the pool's tail beside tc_mb, hal/fm1_core1.h) */
 #endif
-typedef struct { blockstate_t bs; } __attribute__((aligned(64))) tc_ctx_t;   /* (rounded up to whole 64-byte lines: nothing else shares them) */
-static tc_ctx_t tc_ctx TC_CTX_SECT;     /* the block's snapshot: core 0 writes it before tc_post, core 1 reads it after its claim, nobody in between */
+typedef struct {
+    lrry_pp_t pp;                       /* the patch for this block, copied whole (the model's blockP) */
+    lrry_vc_t vc[LRRY_C1_N];            /* voice 4 + k: its pitch and cutoffs */
+    vmod_t m[LRRY_C1_N];                /* .. and DUELL's amp ramp */
+    uint32_t mask;                      /* bit k: voice 4 + k renders */
+} __attribute__((aligned(64))) tc_ctx_t;   /* (rounded up to whole 64-byte lines: nothing else shares them) */
+static tc_ctx_t tc_ctx TC_CTX_SECT;     /* the block's copy: core 0 writes it before tc_post, core 1 reads it after its claim, nobody in between */
+static int32_t tc_acc[2][CTL] __attribute__((aligned(64)));   /* core 1's stereo accumulator (int32 L, R): written by core 1 only, read by core 0 only after done */
 
-/* 16 bits of the snapshot: a misread byte changes it (FNV over the words) */
-static uint32_t tc_ctx_hash(const blockstate_t *bs)
+/* 16 bits of the copy: a misread word changes it (FNV over the words) */
+static uint32_t tc_ctx_hash(const tc_ctx_t *c)
 {
-    const uint32_t *w = (const uint32_t *)bs;
+    const uint32_t *w = (const uint32_t *)c;
     uint32_t i, h = 0x811C9DC5u;
-    for (i = 0; i < sizeof *bs / 4u; i++)
+    for (i = 0; i < sizeof *c / 4u; i++)
         h = (h ^ w[i]) * 0x01000193u;
     return (h ^ h >> 16) & 0xFFFFu;
 }
@@ -273,40 +275,24 @@ static void tc_job_refuse(void)
     TC_ST(&tc_mb.bad, TC_LD(&tc_mb.bad) + 1u);
 }
 
-/* core 1: part 2 for one block, the stages of mix_part with the morph window around them (the order of tests/twocore_sim.c run_part). arg: n | hash << 16 */
+/* core 1: voices 4..7 for one block into tc_acc. arg: n | hash << 16 */
 static void tc_job_run(uint32_t arg)
 {
-    track_t *t = &trk[1];
-    uint32_t n = arg & 0xFFFFu;
-    mixpart_t m;
-    int mo;
-    if (tc_ctx_hash(&tc_ctx.bs) != arg >> 16 || n != CTL) {   /* (a block is always CTL frames; the stages get the constant CTL, not n: with a variable n the compiler stops folding the block length in the hot filter code (uf_run, uf_voice) and the hot block grows by 68 B) */
+    uint32_t n = arg & 0xFFFFu, i;
+    if (tc_ctx_hash(&tc_ctx) != arg >> 16 || n != CTL) {   /* (a block is always CTL frames; the kernel gets the constant CTL, not n, so the compiler folds the block length) */
         tc_job_refuse();
         return;
     }
-    mo = morph_begin(t, 1);
-    if (part_voice(&m, t, CTL, &tc_ctx.bs)) {
-        part_fx(&m);
-        part_mix(&m);
-        part_end(&m);
-    } else {
-        part_rest(&m);
-    }
-    if (mo)
-        morph_end(t);
-    /* STAGE 2: bus B */
+    for (i = 0; i < CTL; i++)
+        tc_acc[0][i] = tc_acc[1][i] = 0;
+    for (i = 0; i < LRRY_C1_N; i++)
+        if ((tc_ctx.mask >> i) & 1u)
+            lrry_voice(&tc_ctx.pp, &tc_ctx.vc[i], &lrry_vs[0][LRRY_C1_FIRST + i], &tc_ctx.m[i], tc_acc[0], tc_acc[1], CTL);
 }
 
 /* ---------------------------------------------------------------- the deadline (core 0) --- */
-static uint32_t tcr_active(const track_t *t)
-{
-    uint32_t i, n = 0;
-    for (i = 0; i < NVOICE; i++)
-        n += t->v[i].active != 0;
-    return n;
-}
-/* The latest tick at which core 0 can still play part 2 itself and finish the half in time: the half's end, less
- *   part 2's cost at its current settings (its fixed stages and its sounding voices),
+/* The latest tick at which core 0 can still play voices 4..7 itself and finish the half in time: the half's end, less
+ *   their cost at the current settings (the voices rendering there, a voice each),
  *   the rest of this block (gather, sends, master: the globals),
  *   the blocks still to come, each at the whole one-core cost (both parts and the globals: the worst case, core 1 late again),
  *   and TCR_SLACK_TICKS.
@@ -318,25 +304,19 @@ static uint32_t tcr_active(const track_t *t)
 #define TCR_TRUE(x) (((x) * 100u + BUDGET_DL_MARGIN - 1u) / BUDGET_DL_MARGIN)   /* a 1.15 item back at its true cost, rounded up (>= the exact 1.00 item: item 137) */
 static uint32_t tcr_deadline(uint32_t now, int *nofit)
 {
-    uint32_t k = tcr.blk, c1, c2, need, dl, cap, a1, a2;
+    uint32_t k = tcr.blk, c1, c2, need, dl, cap, a1 = tcr.a_lo, a2 = tcr.a_hi;
     if (k == 0 || !tcr.cost_ok) {
-        part_dl(&trk[0], &tcr.c1f, &tcr.c1v);           /* (item 142: one bd_part a part, was two) */
-        part_dl(&trk[1], &tcr.c2f, &tcr.c2v);
+        part_dl(&trk[0], &tcr.c1f, &tcr.c1v);           /* (item 142: one bd_part a part) */
         tcr.g = global_cost_dl();
         tcr.two = (uint8_t)bd_two_now();
-        tcr.t1f = TCR_TRUE(tcr.c1f), tcr.t1v = TCR_TRUE(tcr.c1v), tcr.t2f = TCR_TRUE(tcr.c2f), tcr.t2v = TCR_TRUE(tcr.c2v), tcr.tg = TCR_TRUE(tcr.g);
+        tcr.t1f = TCR_TRUE(tcr.c1f), tcr.t1v = TCR_TRUE(tcr.c1v), tcr.tg = TCR_TRUE(tcr.g);
         tcr.cost_ok = 1;
     }
 #if TC_MEAS
-    tcj.a1 = tcr_active(&trk[0]);
-    tcj.a2 = tcr_active(&trk[1]);
-    a1 = tcj.a1, a2 = tcj.a2;
-#else
-    a1 = tcr_active(&trk[0]);
-    a2 = tcr_active(&trk[1]);
+    tcj.a1 = a1, tcj.a2 = a2;
 #endif
-    c1 = tcr.c1f + a1 * tcr.c1v;
-    c2 = tcr.c2f + a2 * tcr.c2v;
+    c1 = tcr.c1f + a1 * tcr.c1v;                        /* core 0's side: the part's fixed work and its voices 0..3 */
+    c2 = a2 * tcr.c1v;                                  /* voices 4..7 */
     /* DUELL 1.1 item 90: under the two-core rule the parts may hold more notes than one core can play, so the later blocks are counted at core 0's own share (part 1 and the
      * globals: core 1 plays part 2 there again); under the one-core rule at the whole one-core cost as before */
     need = c2 + tcr.g + (TCR_BLOCKS - 1u - k) * (tcr.two ? c1 + tcr.g : c1 + c2 + tcr.g);
@@ -349,9 +329,9 @@ static uint32_t tcr_deadline(uint32_t now, int *nofit)
          * DUELL 1.1 item 142 (HANDOFF_V2 item 139): the later of that (the 1.15 table) and the same rest at TRUE cost (the items brought back as tcr_deadline_true does, rounded up) less
          * TCR_SLACK: the cushion is a flat 0.2 block instead of 15 % of the rest. Measured on the unit (item 139, 312 clean setups) the true rest covered core 0's real post-wait need
          * at the half's peak in every case; core 1's block-0 job then fits the caps of BUDGET_LIMIT 84 (tests/deadline_test.c CORE 1). Never after the half's end */
-        uint32_t rest = need > c2 ? need - c2 : 0u, rt, c1t = tcr.t1f + a1 * tcr.t1v;
+        uint32_t rest = need > c2 ? need - c2 : 0u, rt, c1t = tcr.t1f + a1 * tcr.t1v, c2t = a2 * tcr.t1v;
         int32_t lo, lt;
-        rt = tcr.tg + (TCR_BLOCKS - 1u - k) * (tcr.two ? c1t + tcr.tg : c1t + tcr.t2f + a2 * tcr.t2v + tcr.tg);
+        rt = tcr.tg + (TCR_BLOCKS - 1u - k) * (tcr.two ? c1t + tcr.tg : c1t + c2t + tcr.tg);
         rt = rt > TCR_NEED_MAX ? TCR_NEED_MAX : rt;
         lo = (int32_t)TCR_HALF_TICKS - (int32_t)(rest * TCR_BLOCK_TICKS / 10000u);          /* (ticks after the half's start; negative: before it) */
         lt = (int32_t)TCR_HALF_TICKS - (int32_t)(rt * TCR_BLOCK_TICKS / 10000u) - (int32_t)TCR_SLACK_NOW;
@@ -389,8 +369,8 @@ static uint32_t tcr_deadline(uint32_t now, int *nofit)
 static uint32_t tcr_deadline_true(uint32_t now, uint32_t dl)
 {
     uint32_t k = tcr.blk, c1, c2, need, cap, dt;
-    c1 = tcr.t1f + tcr_active(&trk[0]) * tcr.t1v;      /* (item 142: the true items tcr_deadline keeps; the same values as TCR_TRUE of the 1.15 ones) */
-    c2 = tcr.t2f + tcr_active(&trk[1]) * tcr.t2v;
+    c1 = tcr.t1f + tcr.a_lo * tcr.t1v;      /* (item 142: the true items tcr_deadline keeps; the same values as TCR_TRUE of the 1.15 ones) */
+    c2 = tcr.a_hi * tcr.t1v;
     need = c2 + tcr.tg + (TCR_BLOCKS - 1u - k) * (c1 + tcr.tg);   /* (two-core rule only: the later blocks at core 0's own share, as tcr_deadline) */
     if (need > TCR_NEED_MAX)
         need = TCR_NEED_MAX;
@@ -442,7 +422,7 @@ static void tc_trim_poll(void)
 {
     uint8_t on = tcr.paused || tc.failed;
     if (on && !tcr.trim_on) {
-        tcr.trim = 3u;
+        tcr.trim = 1u;
         tc_say = 1;                                     /* (one core now, for a pause or for the rest of the session) */
     }
     tcr.trim_on = on;
@@ -514,36 +494,23 @@ static void tcr_settle(void)
     }
 }
 
-/* core 0 plays part 2 itself: the one-core order. After a core 1 stopped in the middle of it, its voices fade out first (voice_kill, the one-block fade) */
-static void tcr_play2(const blockstate_t *bs, uint32_t n)
+/* core 0 plays voices 4..7 itself: the one-core order (the same sum) */
+static void tcr_play_hi(uint32_t ti, int32_t *out, int32_t *outR, uint32_t n)
 {
-    track_t *t = &trk[1];
-    int mo;
-    if (tcr.fade2) {
-        uint32_t i;
-        tcr.fade2 = 0;
-        for (i = 0; i < NVOICE; i++)
-            if (t->v[i].active && t->v[i].stage != 4u)
-                voice_kill(&t->v[i]);
-    }
-    if (tcr.trim & 2u) {
-        tcr.trim &= (uint8_t)~2u;
-        tcs.trims += voice_trim_now(t);
-    }
-    mo = morph_begin(t, 1);
-    mix_part(t, n, bs);
-    if (mo)
-        morph_end(t);
+    lrry_render_range(ti, LRRY_C1_FIRST, NVOICE, out, outR, n);
 }
+static uint32_t tcr_open_now(void) { return tcr.open != 0u; }
 
-/* after the block's snapshot, before part 1: settle the old job, resume after the calm period, and post this block's job if the hand-over is on */
-static void tcr_begin(const blockstate_t *bs, uint32_t n)
+/* the block's start (fx.c mix_block, before the part): settle the old job, resume after the calm period, trim, and say whether a job may go this block (the post itself is tcr_voices_post) */
+static void tcr_begin(uint32_t n)
 {
-    uint32_t now = TC_TICKS(), dl;
-    int nofit;
+    uint32_t now = TC_TICKS(), i;
+    (void)n;
     tcs.blocks++;
     tcr.job = 0;
     tcr.skip2 = 0;
+    tcr.got = 0;
+    tcr.a_lo = tcr.a_hi = 0;
 #if TC_MEAS
     if (tcm.clr)
         tcm_clear();
@@ -557,11 +524,17 @@ static void tcr_begin(const blockstate_t *bs, uint32_t n)
         tcr.fl_n = 0, tcr.fl_prev = tcr.fl_cur, tcr.fl_cur = 0;
 #endif
     tcr_settle();
-    {   /* DUELL 1.1 item 90: both parts on core 0 from this block (core 1 down, paused, or a flash park): the one-core numbers hold at once (trk_nvoice reads bnotes1), and the
+    if (tcr.fade2) {                                    /* core 1 stopped in a claimed job: voices 4..7's audio state may be half written, they fade out (voice_kill: the one-block fade) before they are played */
+        tcr.fade2 = 0;
+        for (i = LRRY_C1_FIRST; i < NVOICE; i++)
+            if (trk[0].v[i].active && trk[0].v[i].stage != 4u)
+                voice_kill(&trk[0].v[i]);
+    }
+    {   /* DUELL 1.1 item 90: everything on core 0 from this block (core 1 down, paused, or a flash park): the one-core numbers hold at once (trk_nvoice reads bnotes1), and the
          * notes above them fade now (voice_trim_now: the one-block fade), not at the main loop's next pass */
         uint8_t one = (uint8_t)(!tc.up || tc.park || tcr.paused TCR_OR_NOCORE1);
         if (one && !bd_one_now)
-            tcr.trim = 3u;
+            tcr.trim = 1u;
         bd_one_now = one;
     }
     if (tcr.trim & 1u) {
@@ -574,15 +547,30 @@ static void tcr_begin(const blockstate_t *bs, uint32_t n)
         tcr.vw_n = 0;
         tcs.resumes++;
     }
-    if (!tc.up || tc.park || tcr.paused || tcr.open TCR_OR_NOCORE1) {
+    tcr.go = (uint8_t)(tc.up && !tc.park && !tcr.paused && !tcr.open TCR_AND_NOT_NOCORE1);
 #if TC_MEAS
-        tcr.own_why = !tc.up || TCR_NOCORE1_NOW ? TCM_OWN_DOWN : tc.park ? TCM_OWN_PARK : TCM_OWN_PAUSE;
+    tcr.own_why = !tc.up || TCR_NOCORE1_NOW ? TCM_OWN_DOWN : tc.park ? TCM_OWN_PARK : tcr.paused ? TCM_OWN_PAUSE : TCM_OWN_DL;
 #endif
-        return;                                         /* core 0 plays part 2 itself, or waits for the open job (tcr_part2) */
+}
+
+/* in the render stage, after the control work of the voices (voice.c): hand voices 4..7 to core 1 if the hand-over is on and they have something to render */
+static uint32_t tcr_voices_post(uint32_t ti, uint32_t n)
+{
+    uint32_t now, dl, m = lrj.mask, k;
+    int nofit;
+    tcr.a_lo = (uint8_t)__builtin_popcount(m & ((1u << LRRY_C1_FIRST) - 1u));
+    tcr.a_hi = (uint8_t)__builtin_popcount(m >> LRRY_C1_FIRST);
+    if (!tcr.a_hi || !tcr.go) {
+#if TC_MEAS
+        if (!tcr.a_hi)
+            tcr.own_why = TCM_OWN_NOV;
+#endif
+        return 0;                                       /* nothing for core 1, or core 0 plays it itself, or waits for the open job (tcr_voices_collect) */
     }
+    now = TC_TICKS();
     dl = tcr_post_deadline(now, &nofit);                /* (item 137: the 1.15 deadline, or when that is past the true-cost one if it is still ahead) */
     tcr.nott = 0;
-    if (tcr.two && ((int32_t)(dl - now) <= 0 || nofit)) {   /* item 90: two-core numbers sound and core 0 can no longer take part 2 back in time: post it all the same, no take-over */
+    if (tcr.two && ((int32_t)(dl - now) <= 0 || nofit)) {   /* item 90: two-core numbers sound and core 0 can no longer take the voices back in time: post it all the same, no take-over */
         tcr.nott = 1;
         dl = tcr.lim;
         nofit = 0;
@@ -593,9 +581,14 @@ static void tcr_begin(const blockstate_t *bs, uint32_t n)
         if (nofit)
             tcr.own_why = TCM_OWN_FL;
 #endif
-        return;                                         /* the half is too far gone to wait for core 1 (or core 1's measured run time does not fit before the latest deadline: not a fault) */
+        return 0;                                       /* the half is too far gone to wait for core 1 (or core 1's measured run time does not fit before the latest deadline: not a fault) */
     }
-    tc_ctx.bs = *bs;
+    tc_ctx.pp = lrry_pp[ti];                            /* the block copy of the patch (the model's blockP): core 1 reads only this */
+    tc_ctx.mask = m >> LRRY_C1_FIRST;
+    for (k = 0; k < LRRY_C1_N; k++) {
+        tc_ctx.vc[k] = lrj.vc[LRRY_C1_FIRST + k];
+        tc_ctx.m[k] = lrj.m[LRRY_C1_FIRST + k];
+    }
     tcr.dl = dl;
 #if TC_MEAS
     tcj.t_post = TC_TICKS();                            /* (before the post, so core 1 cannot see the job before this tick) */
@@ -605,29 +598,56 @@ static void tcr_begin(const blockstate_t *bs, uint32_t n)
     tcj.vl = 0;
     tcm.posted++;
 #endif
-    tcr.job = tc_post(n | (uint32_t)tc_ctx_hash(&tc_ctx.bs) << 16);
+    tcr.job = tc_post(n | (uint32_t)tc_ctx_hash(&tc_ctx) << 16);
     tcr.open = tcr.job;
+    return tcr.job;
 }
 
-/* a fault of core 1 found by the runner: stopped for the session, a strike, core 0 plays part 2 (faded out first if core 1 had claimed the job) */
-static void tcr_fault(uint32_t why, const blockstate_t *bs, uint32_t n)
+/* a fault of core 1 found by the runner: stopped for the session, a strike, core 0 plays voices 4..7 (they fade out at the next block if core 1 had claimed the job) */
+static void tcr_fault(uint32_t why, uint32_t ti, int32_t *out, int32_t *outR, uint32_t n)
 {
     tc_fail(why);
     tcs.refused++;
     tcr_settle();
-    tcr_play2(bs, n);
+    tcr_play_hi(ti, out, outR, n);
+}
+/* core 1's sums added to the block */
+static void tcr_add_acc(int32_t *out, int32_t *outR, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        out[i] += tc_acc[0][i];
+        outR[i] += tc_acc[1][i];
+    }
+}
+/* the block's end (fx.c mix_block): a block with no voices of core 1's side to render is counted here */
+static void tcr_end(void)
+{
+    if (!tcr.got) {
+        if (tcr.open)
+            tcs.wait++;
+        else {
+            tcs.own++;
+#if TC_MEAS
+            tcm.own[tcr.own_why]++;
+#endif
+        }
+    }
+    if (tcr.blk < TCR_BLOCKS - 1u)
+        tcr.blk++;
 }
 
-/* after part 1: part 2 of this block is on core 1 (wait for it, the late path), or core 0 plays it, or it stays silent */
-static void tcr_part2(const blockstate_t *bs, uint32_t n)
+/* after core 0 rendered voices 0..3: voices 4..7 are on core 1 (wait for it, the late path), or core 0 plays them, or they stay silent */
+static void tcr_voices_collect(uint32_t ti, int32_t *out, int32_t *outR, uint32_t n)
 {
     uint32_t j = tcr.job, a, lim = tcr.lim, t1;
     int vl = 0;                                         /* very late: counted already */
     int noans = 0;                                      /* no answer to the take: a fault even if core 1 finishes the job later */
-    if (tcr.blk < TCR_BLOCKS - 1u)
-        tcr.blk++;
+    if (!tcr.a_hi)
+        return;                                         /* (counted by tcr_end) */
+    tcr.got = 1;
     if (!j) {
-        if (tcr.open) {                                 /* core 1 still holds an older job: part 2 is its until it is done */
+        if (tcr.open) {                                 /* core 1 still holds an older job: voices 4..7 are its until it is done */
             tcs.wait++;
             tcs.silent++;
             tcr.skip2 = 1;
@@ -636,7 +656,7 @@ static void tcr_part2(const blockstate_t *bs, uint32_t n)
 #if TC_MEAS
             tcm.own[tcr.own_why]++;
 #endif
-            tcr_play2(bs, n);
+            tcr_play_hi(ti, out, outR, n);
         }
         return;
     }
@@ -650,7 +670,7 @@ static void tcr_part2(const blockstate_t *bs, uint32_t n)
             t1 = lim;                                   /* (the wait for the answer is inside the limit too) */
         while ((a = tc_answer(j)) == TCA_NONE && (int32_t)(TC_TICKS() - t1) < 0)
             ;
-        if (a == TCA_YIELD && tcr.nott) {               /* item 90: it had not started and core 0 has no time left for part 2: silent this block (core 1 never touched it), a pause */
+        if (a == TCA_YIELD && tcr.nott) {               /* item 90: it had not started and core 0 has no time left for them: silent this block (core 1 never touched it), a pause */
             tcs.late++;
             tcs.silent++;
             tcr.open = 0;
@@ -664,7 +684,7 @@ static void tcr_part2(const blockstate_t *bs, uint32_t n)
             tcr.vlate_run = 0;
             if (++tcr.late_run >= TCR_LATE_NOW)
                 tcr_pause(TC_TICKS(), TCR_PW_LATE);
-            tcr_play2(bs, n);
+            tcr_play_hi(ti, out, outR, n);
             return;
         }
         if (a == TCA_CLAIMED || a == TCA_NONE) {        /* it is on it (or stuck): wait for done, but not past the wait limit (BENCHT4; up to BENCHT3: the end of the half) */
@@ -679,13 +699,13 @@ static void tcr_part2(const blockstate_t *bs, uint32_t n)
             tcj.vl = 1;
 #endif
             tcr.late_run = 0;
-            if (a == TCA_YIELD) {                       /* (no answer in time, then yld: it never touched part 2) */
+            if (a == TCA_YIELD) {                       /* (no answer in time, then yld: it never touched them) */
                 tcr_pause(TC_TICKS(), TCR_PW_FAULT); /* [no answer] */
                 tcr.open = 0;
-                tcr_play2(bs, n);
+                tcr_play_hi(ti, out, outR, n);
                 return;
             }
-            if (a == TCA_CLAIMED || a == TCA_NONE) {    /* not done by the wait limit: part 2 silent for this block, core 0 touches nothing of it */
+            if (a == TCA_CLAIMED || a == TCA_NONE) {    /* not done by the wait limit: voices 4..7 silent for this block, core 0 touches nothing of them */
                 tcr_pause(TC_TICKS(), TCR_PW_FAULT); /* [silent] */
                 tcs.silent++;
                 tcr.skip2 = 1;
@@ -707,9 +727,10 @@ static void tcr_part2(const blockstate_t *bs, uint32_t n)
         tcm_collect(j);
 #endif
         tcr.open = 0;                                   /* (a very late one that is done: its sums are good) */
+        tcr_add_acc(out, outR, n);
         return;
     }
     if (vl)
         tcs.vlate--;                                    /* (counted as refused, once) */
-    tcr_fault(a == TCA_BAD ? TCR_BADWORD : TCR_BADJOB, bs, n);   /* refused (a check value, a snapshot), or a word ahead */
+    tcr_fault(a == TCA_BAD ? TCR_BADWORD : TCR_BADJOB, ti, out, outR, n);   /* refused (a check value, a snapshot), or a word ahead */
 }

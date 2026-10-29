@@ -3,3 +3,5 @@
 *.elf
 fw/felucca-base/build/host/
 fw/felucca-base/build/mod_demo/
+fw/felucca-base/build/gen/
+fw/felucca-base/build/twocore_mut/

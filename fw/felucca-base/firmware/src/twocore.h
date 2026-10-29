@@ -6,13 +6,13 @@
  * THE WORDS (tc_mb, one object, two 64-byte lines; each word has ONE writer; every access is one aligned 32-bit load or store; no 64-bit
  * word, no read-modify-write of a shared word, no atomic swap between the cores is assumed: whether the chip has one is not known):
  *   core 0 writes   job    the job number (1, 2, 3 ..: +1 for every job posted, never reused within a power-on), written LAST
- *                   arg    what to do (the runner's encoding: the block, the part)          written before job
+ *                   arg    what to do (the runner's encoding: the block length and a hash of the block copy)   written before job
  *                   chk    TC_CHECK(job, arg)                                               written before job
  *                   take   "core 0 asks for job N back": N
  *   core 1 writes   alive  1 once it runs its waiting loop
  *                   claim  N: "I play job N"  (core 1 decided to run it)
  *                   yld    N: "you play job N" (core 1 saw take == N before it claimed it: it never touches job N)
- *                   done   N: job N finished (part 2's sums for that block are written)
+ *                   done   N: job N finished (core 1's sums for that block, voices 4..7, are written)
  *                   beat   the heartbeat: +1 after every job and every TC_IDLE_BEAT polls of the waiting loop
  *                   bad, bad_job   jobs refused (a check value or a number that does not fit) and the last refused number
  *                   misread        words of the pattern block (tc_pat) read wrong (16 a job)
@@ -86,7 +86,7 @@ static uint32_t tc_pat[TC_PAT_N] TC_BSS;               /* written once by core 0
 
 #include "twocore_reasons.h"
 
-/* core 1's job: part 2's stages for one block (the runner defines it: docs/TWOCORE_STAGE1.md, cloud job 5). The computer's tests may name
+/* core 1's job: voices 4..7 for one block into its own accumulator (L/RRY 4.3b: twocore_run.c tc_job_run; was part 2's stages, DUELL's split by part). The computer's tests may name
  * another function with TC_JOB_RUN */
 #ifndef TC_JOB_RUN
 #define TC_JOB_RUN tc_job_run
@@ -162,7 +162,7 @@ TC_C1_INLINE void tc_c1_step(tc_c1_t *c)
     TC_ST(&tc_mb.t_end, te);
     TC_ST(&tc_mb.mj, j);
 #endif
-    TC_SYNC();                                          /* (part 2's writes before the done word) */
+    TC_SYNC();                                          /* (the job's writes before the done word) */
     TC_ST(&tc_mb.done, j);
     c->beat++;
     TC_ST(&tc_mb.beat, c->beat);
