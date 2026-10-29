@@ -1,0 +1,80 @@
+KEY VELOCITY FIT   velo_20261026_091617.csv
+
+1. What was recorded
+   11206 key readings, 105 key presses found on 10 keys (F3, G3, A3, C4, D4, E4, F4, G4, A4, C5).
+   Guided session markers: yes.
+
+2. How each key reads when pressed (the number the key gives: LOWER = HARDER press)
+   first reading after landing: lowest / middle / highest, per kind of press
+   key            hard                    normal                    soft         
+   F3      6x 770 / 814 / 919       5x 927 / 956 / 997      6x 995 / 1012 / 1015 
+   G3              -                        -                        -           
+   A3      6x 681 / 707 / 748       5x 821 / 846 / 933       5x 980 / 993 / 1008 
+   C4      6x 694 / 701 / 732       5x 843 / 956 / 1009     5x 1000 / 1006 / 1011
+   D4              -                        -                        -           
+   E4      5x 698 / 704 / 803       5x 771 / 876 / 892       5x 937 / 972 / 1011 
+   F4              -                        -                        -           
+   G4      5x 679 / 690 / 696       5x 770 / 856 / 942       5x 979 / 993 / 1009 
+   A4              -                        -                        -           
+   C5      5x 680 / 684 / 701       5x 786 / 897 / 937      5x 999 / 1007 / 1019 
+
+3. How often the first reading is wrong (it differs from the next two by more than 25 counts)
+   F3    15 of 20  ( 75 %)
+   G3     1 of  1  (100 %)
+   A3    11 of 16  ( 69 %)
+   C4    10 of 16  ( 62 %)
+   D4     1 of  1  (100 %)
+   E4     6 of 15  ( 40 %)
+   F4     4 of  4  (100 %)
+   G4     8 of 15  ( 53 %)
+   A4     1 of  2  ( 50 %)
+   C5    10 of 15  ( 67 %)
+   all    67 of 105  ( 64 %)
+   After landing the reading settles by -14 counts (middle value) by 30 to 80 ms.
+
+4. Suggested settings for each key (middle values of the hard and of the soft presses)
+   key    hardest  softest         unit now     unit would use
+   F3           -        -        417 / 593   too few usable hard or soft presses
+   G3           -        -        417 / 593   too few usable hard or soft presses
+   A3           -        -        560 / 720   too few usable hard or soft presses
+   C4           -        -        560 / 720   too few usable hard or soft presses
+   D4           -        -        560 / 720   too few usable hard or soft presses
+   E4           -        -        560 / 720   too few usable hard or soft presses
+   F4           -        -        560 / 720   too few usable hard or soft presses
+   G4           -        -        560 / 720   too few usable hard or soft presses
+   A4           -        -        560 / 720   too few usable hard or soft presses
+   C5           -        -        560 / 720   too few usable hard or soft presses
+   (floor / ceiling in counts. 'unit now' is what the unit held when the recording started.)
+
+5. Velocity (1 to 127) for hard, normal and soft presses: lowest / quarter / middle / three-quarter / highest
+   'unit played' = what the unit really played during the recording
+   'fresh unit' = the same readings replayed on a unit that knows nothing yet (as after ERASE)
+   'with suggestions' = the same replay with the suggested settings loaded
+   (the suggestions are measured on these same presses: the real test is to load them and play again)
+   HARD presses (33)
+      unit played         1  29  38  51 127   (33 counted)
+      fresh unit          1  13  22  34 127   (33 counted)
+      with suggestions    1  13  22  34 127   (33 counted)
+   NORMAL presses (30)
+      unit played         1  82 111 120 127   (30 counted)
+      fresh unit          1  82 111 120 127   (30 counted)
+      with suggestions    1  82 111 120 127   (30 counted)
+   SOFT presses (31)
+      unit played         1   1  37  72 127   (31 counted)
+      fresh unit          1   1  37  72 127   (31 counted)
+      with suggestions    1   1  37  72 127   (31 counted)
+
+   Per key, middle velocity  hard / normal / soft   (fresh unit -> with suggestions)
+   F3    127->127    117->117     35->35 
+   G3      -->-        -->-        -->-  
+   A3      7->7      112->112     35->35 
+   C4     17->17     110->110     51->51 
+   D4      -->-        -->-        -->-  
+   E4     18->18     112->112     86->86 
+   F4      -->-        -->-        -->-  
+   G4     23->23     100->100     15->15 
+   A4      -->-        -->-        -->-  
+   C5     23->23      80->80       1->1  
+
+6. Send back
+   the recording (velo_20261026_091617.csv) and this report. Nothing was changed on the unit.

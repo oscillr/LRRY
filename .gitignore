@@ -1,0 +1,5 @@
+.DS_Store
+*.o
+*.elf
+fw/felucca-base/build/host/
+fw/felucca-base/build/mod_demo/
