@@ -30,6 +30,9 @@
 #define LRRY_SUPDET_Q8 51603            /* SUPER: detune cents Q8 = P1 x 100 / 127 (x 51603 >> 8) */
 #define LRRY_COMBFB ((int32_t)(0.95 * 268435456.0 / 63.0 + 0.5))                        /* COMB feedback Q28 = FDBK / 63 x 0.95 */
 
+_Static_assert(MO_SAW == LM_SAW && MO_PULSE == LM_PULSE && MO_SUPER == LM_SUPER && MO_FM == LM_FM && MO_FOLD == LM_FOLD && MO_N == LM_N && MF_A_BP == LF_BP && MF_A_NOTCH == LF_NOTCH,
+               "morph.c's copies of the MODEL and filter A MODE numbers (4.4a)");
+
 /* the part's block: every value the voice reads from the stored ones, once a block */
 static void lrry_decode(const track_t *t, lrry_pp_t *P)
 {

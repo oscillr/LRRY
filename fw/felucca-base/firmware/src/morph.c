@@ -44,10 +44,9 @@
  * roll that lifts RES above 100 does not lift DRV), ATK never above max(original, ~1 s) (never silent), source levels and
  * depths that only rise a little (MF_RISE: noise, sub, DIST send, LFO -> AMP), SUS floor, ceilings for PHYS DAMP and BOW and
  * VOICE BRTH (no endless notes, no lost voicing). New matrix routes only by morph_add_routes, no self-loops (see MK_SLOT).
- * FM6's sound is its patch (fm6_patch), not t->p: morph_fm_* moves 65 of its bytes too (operator OL and EG rates / levels, pitch EG,
- * LFO speed / delay / depths), blended per block into fm6_eff (eng_fm6.c fm6_morph hook), never into the stored patch. Not done: the spec's
- * render of a test note at roll time (an engine's state is the part's own: a test render would disturb the live voices);
- * tests/morph_test.c renders 500 rolls x 6 engines on the host instead.
+ * L/RRY phase 4.4a: one sound source, the L/RRY voice: no engine table, no per-engine tags, no FM6 patch morph (it went with the engine). The 36 voice slots X28..X63 are tagged
+ * (MTX, morph_osc_tag), filter A MODE is a choice. Not done: the spec's render of a test note at roll time (a test render would disturb the live voices);
+ * tests/lrry_morph_test.c renders 1000 rolls through the real mix path on the host instead.
  *
  * The fader (morph_apply): continuous values blend linearly (Q8, rounded: fader 0 is End A and 127 End B exactly); a choice
  * that differs fades through mxf (the other end's value and its weight: LFO WAVE 1/2 cross-fade both shapes, ANALOG WAVE 0..4
@@ -217,34 +216,50 @@ static const mtag_t MTX[NX] = {
      * held like AMP ENV to PITCH and LFO 1 to PITCH. X25 / X26 (the LFO LEVELs) never roll; X27 (STRUM) is not rolled either (morph_tag stops at X_L2BLD) */
     [X_ESAT] = T_C, [X_E2BLD] = T_C, [X_E2DRV] = T_C, [X_E2RES] = T_C, [X_CYCUT2] = T_C, [X_CYPAN] = T_C,
     [X_L2RES2] = T_CF(MF_CAP, 32), [X_L2FMODE] = T_CF(MF_CAP, 32), [X_L2BLD] = T_CF(MF_CAP, 32),
+    /* L/RRY phase 4.4a (LRRY_PHASE44A_REPORT.md): the voice's slots X28 .. X63, each with the tag of its nearest DUELL sibling (no new kind of rule). They roll on the TWIN stream after X24
+     * (morph_twin_roll, slot order), so no value rolled before them moves.
+     *   MODEL (the oscillator's wave: the engines' WAVE / MODE, which the engines cross-faded; the voice has no cross-fade, so DUELL's rule for a choice that cannot be faded: T_HARD),
+     *   COARSE (whole semitones: T_PIT, as TRANS and TRIO's intervals), FINE (cents: the fine detunes, 10 cents at most), LEVEL (a source level: only a little louder, as the sub and the noise),
+     *   PAN (as PAN: L/RRY is always stereo), BAL (the A / B balance: BLEND's T_C; held with filter B OFF, morph_twin_gate), P1 .. P3 by MODEL (morph_osc_tag),
+     *   DIRT TYPE (as the INSERT's TYPE: T_EX), its DRIVE (as DRIVE: MF_RISE 32), PAN and LEVEL (held while the unit is OFF, as the INSERT's values), DIRT ROUTE (a switch, as ROUTE),
+     *   MID (the voice's output level: as the PATCH TRIM, never), SIDE (the width: as SPREAD) */
+    [X_O1MODEL] = T_HARD, [X_O1COARSE] = T_PIT, [X_O1FINE] = T_CF(MF_CAP, 10), [X_O1LVL] = T_CF(MF_RISE, 48), [X_O1PAN] = T_CF(MF_STEREO, 0), [X_O1BAL] = T_C,
+    [X_O2MODEL] = T_HARD, [X_O2COARSE] = T_PIT, [X_O2FINE] = T_CF(MF_CAP, 10), [X_O2LVL] = T_CF(MF_RISE, 48), [X_O2PAN] = T_CF(MF_STEREO, 0), [X_O2BAL] = T_C,
+    [X_NZLVL] = T_CF(MF_RISE, 48), [X_NZPAN] = T_CF(MF_STEREO, 0), [X_NZBAL] = T_C,
+    [X_RGLVL] = T_CF(MF_RISE, 48), [X_RGPAN] = T_CF(MF_STEREO, 0), [X_RGBAL] = T_C,
+    [X_FAPAN] = T_CF(MF_STEREO, 0), [X_FBPAN] = T_CF(MF_STEREO, 0),
+    [X_DATYPE] = T_EX, [X_DAPAN] = T_CF(MF_STEREO, 0), [X_DALVL] = T_CF(MF_RISE, 48),
+    [X_DBTYPE] = T_EX, [X_DBDRV] = T_CF(MF_RISE, 32), [X_DBPAN] = T_CF(MF_STEREO, 0), [X_DBLVL] = T_CF(MF_RISE, 48),
+    [X_DSER] = T_HARD, [X_MID] = T_NEV, [X_SIDE] = T_CF(MF_STEREO, 0),
 };
+enum { MO_SAW, MO_TRI, MO_SINE, MO_PULSE, MO_SYNC, MO_SUPER, MO_FM, MO_FOLD, MO_N };   /* OSC MODEL (lrry_voice.c LM_*, which comes later in the build: lrry_param.c checks they agree) */
+enum { MF_A_LP, MF_A_BP, MF_A_HP, MF_A_NOTCH };          /* filter A MODE (P_FREEC; lrry_voice.c LF_*) */
+/* P1 .. P3 of an oscillator (k 0..2) by its MODEL (the meaning lrry_param.c gives them), as the engines' E slots were tagged by their WAVE (B.4): an unused one T_EX (as an engine's unused slot);
+ * PULSE width T_C (ANALOG / LOFI PULSE WIDTH); SYNC ratio T_C (ANALOG's SYNC interval, the cap lifted); SUPER detune the fine detune's 10 cents (13 of 0..127 = 0..100 cents), saws a count that
+ * steps (T_HARD, as LOFI's stepped values and WAVE STEPS), spread as SPREAD; FM ratio T_PIT (FM6 MRAT), index as FM6's MLVL (MF_RISE | MF_CAP 12); FOLD amount: no DUELL sibling, never
+ * (open choice, the report) */
+static mtag_t morph_osc_tag(int32_t model, uint32_t k)
+{
+    static const mtag_t TOSC[MO_N][3] = {
+        [MO_SAW] = {T_EX, T_EX, T_EX}, [MO_TRI] = {T_EX, T_EX, T_EX}, [MO_SINE] = {T_EX, T_EX, T_EX},
+        [MO_PULSE] = {T_C, T_EX, T_EX}, [MO_SYNC] = {T_C, T_EX, T_EX},
+        [MO_SUPER] = {T_CF(MF_CAP, 13), T_HARD, T_CF(MF_STEREO, 0)},
+        [MO_FM] = {T_PIT, T_CF(MF_RISE | MF_CAP, 12), T_EX},
+        [MO_FOLD] = {T_NEV, T_EX, T_EX},
+    };
+    return TOSC[model >= 0 && model < MO_N ? model : 0][k < 3u ? k : 0u];
+}
+#define MORPH_OSCP(id) (((id) >= XW_BASE + X_O1P1 && (id) <= XW_BASE + X_O1P3) || ((id) >= XW_BASE + X_O2P1 && (id) <= XW_BASE + X_O2P3))
+#define MORPH_GATE_B(id) ((id) == XW_BASE + X_O1BAL || (id) == XW_BASE + X_O2BAL || (id) == XW_BASE + X_NZBAL || (id) == XW_BASE + X_RGBAL || (id) == XW_BASE + X_FBPAN)
+#define MORPH_GATE_DA(id) ((id) == P_DRV2 || (id) == XW_BASE + X_DAPAN || (id) == XW_BASE + X_DALVL)
+#define MORPH_GATE_DB(id) ((id) == XW_BASE + X_DBDRV || (id) == XW_BASE + X_DBPAN || (id) == XW_BASE + X_DBLVL)
 #define MORPH_OLD(id) ((id) == P_RES2 || (id) == P_DRV2 || (id) == P_TWTYPE || (id) == P_BLEND || (id) == P_CUT2)   /* the five ids the TWIN FILTER took over */
 
-/* P_E0..P_E7 per engine (B.2); an engine not listed (DIGITAL, DRUM: not in DUELL; SAMPLE, GRAIN, SLICE: retired in 0.2.9) has every
- * E excluded */
-typedef struct { const engine_t *e; mtag_t t[8]; } metag_t;
-static const metag_t MET[] = {
-    {&ENG_ANALOG, {T_FN(5), T_CF(MF_CAP, 10), T_C, T_CF(MF_RISE, 48), T_EX, T_EX, T_C, T_EX}},   /* review 2; CUT RES KTR (E5 E6 E8) are unused slots since cloud job J: filter 1 rolls as on every engine */
-    {&ENG_PHASE, {T_F, T_F, T_C, T_C, T_CF(MF_CAP, 10), T_EX, T_EX, T_EX}},   /* review 5, 6; E7 (its own SUB) is an unused slot since cloud job J */
-    {&ENG_LOFI, {T_HARD, T_FN(3), T_C, T_C, T_C, T_C, T_HARD, T_C}},   /* review 7, 8, 9 */
-    {&ENG_FORMANT, {T_C, T_C, T_CL, T_CF(MF_CAP, 3), T_C, T_CF(MF_CEIL, 100), T_C, T_C}},      /* review 10 */
-    {&ENG_TRIO, {T_EX, T_PIT, T_PIT, T_CF(MF_CAP, 10), T_EX, T_EX, T_EX, T_C}},   /* MODE CUT RES (E5 E6 E7) are unused slots since cloud job J: filter 2's TYPE CUTOFF 2 RES 2 roll on the TWIN stream */
-    {&ENG_WHEEL, {T_F, T_EX, T_C, T_C, T_HARD, T_C, T_C, T_HARD}},                               /* review 11; E2 (its own SUB) is an unused slot since cloud job J */
-    {&ENG_PHYS, {T_HARD, T_C, T_C, T_CF(MF_CEIL, 110), T_C, T_C, T_CF(MF_CEIL, 100), T_C}},   /* review 12 */
-    {&ENG_NOISE, {T_HARD, T_C, T_EX, T_EX, T_EX, T_C, T_C, T_C}},   /* FREQ RES TRK (E3 E4 E5) are unused slots since cloud job J: filter 1 */
-    {&ENG_FM6, {T_HARD, T_CF(MF_CEIL, 4), T_CF(MF_RISE | MF_CAP, 12), T_PIT, T_C, T_C, T_CF(MF_CAP, 35), T_EX}},                    /* FB, MLVL, MEG, VMOD move; ALG, MRAT, SLOT not */
-    /* WAVE (DUELL): TABLE never (not in WILD either: a new table is built, the part silent meanwhile: no fade can hide it); POS
-     * continuous; BEND and SYNC continuous, a move at most 32 in SMART (both speed the read up, and a sweep of both across the
-     * band-limited levels took a sparse table's top partials away within a few % of the fader: a cliff, rule 3-bis), and SYNC
-     * rolls also from 0 (owner, 2026-10-28); (SUB: an unused slot since cloud job J); DTN
-     * as PHASE's (zero stays zero, 10 ct); STEPS (E7: OFF, 2..19 places) is never rolled in SMART and flips in WILD (as before it was
-     * a slot of no use: the draws of every End B are kept); what a roll or an edit made of it blends in the morph_build: between two counts continuously (rounded), OFF against a count it flips at the middle */
-    {&ENG_WAVE, {T_NEV, T_C, T_CF(MF_CAP, 32), T_CF(MF_CAP, 32), T_EX, T_CF(MF_CAP, 10), T_EX, T_EX}},
-};
+/* P_E0..P_E7 (the engines' slots): L/RRY has no engine, nothing reads them (PARAM_LIST.md section 3): never rolled, in no mode (DUELL's rule for stored values with no card and no sound) */
 
-/* parameter id's tag for engine e with the original's values o (the mode-dependent ones, B.4); stereo: STEREO mode.
+/* parameter id's tag with the original's values o (the mode-dependent ones, B.4); stereo: STEREO mode.
  * v2 (SPEC 3.5): the table's tag, then the roll configuration mrc (morph_cfg_tag): ARP, PITCH, WILD */
-static mtag_t morph_cfg_tag(mtag_t g, const engine_t *e, uint32_t id, uint32_t stereo)
+static mtag_t morph_cfg_tag(mtag_t g, uint32_t id, uint32_t stereo)
 {
     uint32_t pit = g.flags & (MF_ZERO | MF_PIT);
     if (g.flags & MF_GONE)                              /* a retired id: excluded everywhere, its draws kept (morph_roll_pure) */
@@ -289,8 +304,8 @@ static mtag_t morph_cfg_tag(mtag_t g, const engine_t *e, uint32_t id, uint32_t s
     }
     if ((g.flags & MF_STEREO) && !stereo)
         g.kind = MK_EX;
-    if (g.kind == MK_FADE && (id >= P_E0 || id == P_LWAVE || id == P_L2WAVE) && !(mrc & MC_LIST))
-        g.flags |= MF_SW;                               /* SMART: an engine's choice (ANALOG E0, LOFI E1, PHASE, WHEEL ..) and the LFO shapes are switches: drawn, not set (WILD flips them above) */
+    if (g.kind == MK_FADE && (id == P_LWAVE || id == P_L2WAVE) && !(mrc & MC_LIST))
+        g.flags |= MF_SW;                               /* SMART: the LFO shapes are switches: drawn, not set (WILD flips them above) */
     if (pit) {                                          /* PITCH ON, smart: the whole-number ones step, zero stays zero is lifted */
         if (g.kind == MK_EX)
             g.kind = MK_STEP;
@@ -320,31 +335,32 @@ static mtag_t morph_twin_gate(mtag_t g, const int8_t *o, uint32_t id)
     if ((id == XW_BASE + X_E2BLD || id == XW_BASE + X_E2DRV || id == XW_BASE + X_CYCUT2 || id == XW_BASE + X_L2RES2 || id == XW_BASE + X_L2BLD) &&
         !(mrc & (MC_WILD | MC_LIST)) && !o[P_TWTYPE])
         return x;                                       /* the DUELL 1.1 cards that act on the TWIN FILTER: held while TYPE is OFF, like its other values (owner, 2026-10-28) */
-    if (id >= XW_BASE + X_CYMODE)
+    if (!(mrc & (MC_WILD | MC_LIST)) && ((MORPH_GATE_B(id) && !o[P_TWTYPE]) || (MORPH_GATE_DA(id) && !o[XW_BASE + X_DATYPE]) ||
+                                         (MORPH_GATE_DB(id) && !o[XW_BASE + X_DBTYPE])))
+        return x;                                       /* L/RRY: the A / B balances and FILTER B PAN held while filter B is OFF (as the TWIN values); a DIRT unit's DRIVE, PAN, LEVEL while it is OFF (as the INSERT's) */
+    if (id >= XW_BASE + X_CYMODE || id == P_DRV2)
         return g;
     if (!(mrc & (MC_WILD | MC_LIST)) && !o[P_TWTYPE])  /* TWIN KEY TRK 2 rolls also from 0; the TWIN values still stay put while TYPE is OFF (open question to the owner) */
         return x;
     return g;
 }
-static mtag_t morph_tag(const engine_t *e, const int8_t *o, uint32_t id, uint32_t stereo)
+static mtag_t morph_tag(const int8_t *o, uint32_t id, uint32_t stereo)
 {
     mtag_t g = T_EX;
-    uint32_t i, k;
     if (id >= P_COUNT) {                                 /* an extension slot (ext.h): MTX; 127, CYCLE to PITCH, the LFO LEVELs and STRUM: never */
-        if (id < XW_BASE || id > XW_BASE + X_L2BLD || id == XW_BASE + X_CYPIT)
+        if (id < XW_BASE || id >= XW_BASE + NX || (id >= XW_BASE + X_LFO1LVL && id <= XW_BASE + X_STRUM) || id == XW_BASE + X_CYPIT)
             return g;
-        return morph_twin_gate(morph_cfg_tag(MTX[id - XW_BASE], e, id, stereo), o, id);
+        g = MORPH_OSCP(id) ? morph_osc_tag(o[id >= XW_BASE + X_O2MODEL ? XW_BASE + X_O2MODEL : XW_BASE + X_O1MODEL], (id - XW_BASE - X_O1P1) % 9u) : MTX[id - XW_BASE];
+        return morph_twin_gate(morph_cfg_tag(g, id, stereo), o, id);
     }
-    if (id >= P_FREEA && id <= P_FREED && e->ufilt) {    /* the multimode filter (DUELL 0.2.9): CUT, RES, MODE continuous like any other, SLOPE a choice that flips
-                                                         * in WILD only (2026-10-27: a switch, SMART draws it and keeps the Original's, MF_SW), on every engine, bypassed (MODE LP, CUT open) or not: SMART may switch it on (owner
-                                                         * override of rule 3g, 0.2.9; 0.2.11 to 2026-10-28: with half the chance, the wake-up coin, now gone). Drawn from a stream of their
-                                                         * own (morph_roll_pure); morph_uf_safe keeps every result audible */
-        g.kind = id == P_FREED ? MK_FADE : MK_CONT;   /* (SLOPE: a choice cross-faded, mxf MX_SLOPE: voice.c uf_run blends the two slopes, no cliff) */
-        if (id == P_FREED && !(mrc & (MC_WILD | MC_LIST)))
-            g.flags |= MF_SW;                           /* 2026-10-27: SLOPE (12 / 24 dB) is a switch: SMART draws it, never sets it; WILD flips it (MK_FADE, as before) */
+    if (id == P_FREEA || id == P_FREEB) {               /* filter A (DUELL's multimode filter): CUT and RES continuous, drawn from a stream of their own (morph_roll_pure); morph_uf_safe keeps every result audible */
+        g.kind = MK_CONT;
         return g;
     }
-    if (id == P_KTRK && e->ufilt) {                     /* KEY TRK (0.2.21), the multimode filter's: continuous like CUT / RES, at most 32 steps (half the range) from the original's; it rolls also from 0 (owner, 2026-10-28).
+    if (id == P_FREEC || id == P_FREED)                 /* L/RRY: MODE (LP BP HP NOTCH, a choice since 4.3a) and SLOPE: the voice cross-fades neither, so DUELL's rule for a filter choice that is not faded, as the TWIN TYPE:
+                                                         * never in SMART, a flip in WILD, at the middle of the fader when the ends differ (morph_build) */
+        return morph_cfg_tag((mtag_t)T_HARD, id, stereo);
+    if (id == P_KTRK) {                                 /* KEY TRK (0.2.21), the multimode filter's: continuous like CUT / RES, at most 32 steps (half the range) from the original's; it rolls also from 0 (owner, 2026-10-28).
                                                          * Its draws are its own stream (morph_roll_pure rs5), so no seed of before moves; no bypass guard (owner, 2026-10-28) */
         g.kind = MK_CONT;
         g.flags = MF_CAP;
@@ -352,7 +368,7 @@ static mtag_t morph_tag(const engine_t *e, const int8_t *o, uint32_t id, uint32_
         return g;
     }
     if (id < P_E0) {
-        g = morph_cfg_tag(MT[id], e, id, stereo);
+        g = morph_cfg_tag(MT[id], id, stereo);
         if ((MT[id].flags & MF_DUCK) && !o[P_DKDEP] && !(mrc & (MC_WILD | MC_LIST)))
             return (mtag_t)T_EX;                        /* SMART: a ducker that is off stays off (SRC, NOTE, RATE, CURVE never roll: T_NEV) */
         if (id >= P_IA && id <= P_IMIX && !o[P_ITYPE] && !(mrc & MC_WILD))
@@ -361,34 +377,12 @@ static mtag_t morph_tag(const engine_t *e, const int8_t *o, uint32_t id, uint32_
             return morph_twin_gate(g, o, id);           /* the TWIN FILTER's five ids */
         return g;
     }
-    k = id - P_E0;
-    for (i = 0; i < NELEM(MET); i++)
-        if (MET[i].e == e) {
-            g = MET[i].t[k];
-            break;
-        }
-    if (e == &ENG_ANALOG && k == 1u && o[P_E0] == AW_SYNC)
-        g.flags &= (uint16_t)~MF_CAP;                   /* SYNC: the sync interval, not a detune */
-    else if (e == &ENG_LOFI && (k == 3u || k == 2u) && o[P_E0] == BITS_STEP)
-        g.kind = MK_HARD;                               /* CRSH is the stepped envelope there (review 9); PULSE WIDTH steps there (12.5 / 25 / 50 / 75 %): a value that steps rolls in WILD only (owner, 2026-10-28):
-                                                         * MK_HARD is never rolled in SMART and morph_cfg_tag turns it into a MK_STEP choice in WILD */
-    else if (e == &ENG_PHYS && k == 1u && o[P_E0] == PM_SYMP)
-        g.kind = MK_HARD;                               /* CHRD tunes the sympathetic strings */
-    else if (e == &ENG_NOISE && k == 5u && o[P_E0] >= NZ_LFSR)
-        g.kind = MK_HARD;                               /* LEN: the register */
-    else if (e == &ENG_NOISE && k == 7u && o[P_E0] >= NZ_LFSR) {
-        g.kind = MK_EX;                                 /* CLK: a pitch offset */
-        g.flags |= MF_PIT;
-    }
-    if (g.kind == MK_FADE && (g.flags & MF_NFADE) && (o[id] < 0 || o[id] >= g.lim))
-        g.kind = MK_HARD;                               /* outside the faded values (ANALOG SYNC / SUB, LOFI NOISE / wave RAM) */
-    g = morph_cfg_tag(g, e, id, stereo);
-    return g;                                           /* (owner, 2026-10-28: PHYSICAL BOW, also on MEMBRANE, and WAVE SYNC roll also from 0) */
+    return g;                                           /* P_E0 .. P_E7: never (no engine) */
 }
 
-/* the range of id for engine e (the edit table, as the matrix: mod.c) */
-static const param_desc_t *morph_desc(const engine_t *e, uint32_t id) { return id >= XW_BASE ? xdesc(0, id - XW_BASE) : id >= P_COUNT ? &XFREE_D : id >= P_E0 ? &e->edit[id - P_E0] : &TP[id]; }
-static const param_desc_t MORPH_E7_OLD = {"-", F_INT, 0, 0, 0, 0, 0};   /* WAVE's E7 as it was before STEPS (an unused slot, range 0..0): a WILD roll draws it as it did, so the End B of every stored seed is what it was, and never turns STEPS on */
+/* the range of id (the edit table, as the matrix: mod.c); the engines' slots P_E0..P_E7 as the retired placeholder had them (wide: a stored value is kept) */
+static const param_desc_t MORPH_E_D = {"-", F_INT, -64, 127, 0, 0, 0};
+static const param_desc_t *morph_desc(uint32_t id) { return id >= XW_BASE ? xdesc(0, id - XW_BASE) : id >= P_COUNT ? &XFREE_D : id >= P_E0 ? &MORPH_E_D : &TP[id]; }
 
 /* ----------------------------------------------------------------- the roll (pure) --- */
 static uint32_t mr_next(uint32_t *s)                    /* xorshift32 */
@@ -439,30 +433,24 @@ static int morph_loop(uint32_t s, uint32_t d)          /* an LFO that would modu
 #define MS_N_OLD (MS_DUCK + 1)                           /* the sources cloud/base3 had: a WILD roll picks a route's new source among these only, so a stored seed (a patch's saved End B) rolls the End B it did;
                                                           * the CYCLE source (cloud job B) is not drawn for (a roll's draws would move), a stored route from it is left whole like MORPH's */
 static int morph_src_ok(uint32_t s) { return s > MS_OFF && s < MS_N_OLD && !MS_PERF(s) && s != MS_MORPH; }   /* (4b: never MORPH) */
-/* engine parameter k that was kept out of the routes by its old tag (pitch-like or a choice: LOFI PULSE WIDTH, SWEEP, VIBRATO; PHASE and WAVE DETUNE; PHYSICAL BOW on MEMBRANE) and now rolls: it is still no route destination */
-static int morph_pitchlike_e(const engine_t *e, const int8_t *o, uint32_t k)
+/* L/RRY: what the voice answers to (PARAM_LIST.md section 3: no engine, the effects OFF): a route is never moved onto, or added to, a destination nothing reads (TIMBRE, the sends and SAT,
+ * the engine slots E1..E8), DUELL's rule "destinations only what the engine answers to" (morph_resp) */
+static int morph_dead_dst(uint32_t d) { return d == MD_SHP || (d >= MD_DIST && d <= MD_REV) || MD_ENGINE(d); }
+static int morph_dst_ok(uint32_t s, uint32_t d, uint32_t stereo)
 {
-    return (e == &ENG_LOFI && (k == 2u || k == 4u || k == 5u)) || (e == &ENG_PHASE && k == 4u) || (e == &ENG_WAVE && k == 5u) ||
-           (e == &ENG_PHYS && k == 6u && o[P_E0] == PM_MEMB);
-}
-static int morph_dst_ok(const engine_t *e, const int8_t *o, uint32_t s, uint32_t d, uint32_t stereo)
-{
-    if (d == MD_OFF || d >= MD_N_026 || d == MD_PITCH || d == MD_VIB || morph_loop(s, d))
+    if (d == MD_OFF || d >= MD_N_026 || d == MD_PITCH || d == MD_VIB || morph_loop(s, d) || morph_dead_dst(d))
         return 0;                                       /* (0.2.7: a WILD roll moves a route only among 0.2.6's destinations, so a
                                                          * saved seed rolls the same End B; a route INTO a new one keeps its rules) */
     if (d == MD_PAN)
         return (int)stereo;
-    if (MD_ENGINE(d))
-        return !morph_pitchlike_e(e, o, d - MD_E1) && morph_tag(e, o, P_E0 + d - MD_E1, stereo).kind == MK_CONT;
     return 1;
 }
 
 /* a route the morph leaves whole (only its amount moves, or nothing): to PITCH / VIB (3a), from a performance controller,
- * onto an engine parameter that is not continuous (FM6 MRAT, a SET, ..) */
-static int morph_route_fixed(const engine_t *e, const int8_t *o, uint32_t s, uint32_t d)
+ * onto an engine slot (no engine: nothing the morph moves) */
+static int morph_route_fixed(uint32_t s, uint32_t d)
 {
-    return d == MD_PITCH || d == MD_VIB || MS_PERF(s) ||
-           (MD_ENGINE(d) && morph_tag(e, o, P_E0 + d - MD_E1, 1).kind != MK_CONT);
+    return d == MD_PITCH || d == MD_VIB || MS_PERF(s) || MD_ENGINE(d);
 }
 
 /* a continuous value of id (tag g, range pd): one step from the start v (ROLL CHAINED, owner 2026-10-29: the end's value before this roll; the Original
@@ -511,7 +499,7 @@ static int32_t morph_other(uint32_t *rs, int32_t lo, int32_t n, int32_t v)
 
 /* matrix slot k: the route as one. ROLL CHAINED: the route and amount of the start st (the end before this roll); o: the tags (the start's modes, the
  * Original's on / off locks, morph_roll_full tv); org: the Original (SMART: an amount of 0 in the saved patch stays 0, a 0 a roll made rolls again) */
-static void morph_slot(uint32_t *rs, uint32_t *rz, const engine_t *e, const int8_t *o, const int8_t *st, const int8_t *org, int8_t *end, uint32_t k,
+static void morph_slot(uint32_t *rs, uint32_t *rz, const int8_t *o, const int8_t *st, const int8_t *org, int8_t *end, uint32_t k,
                        uint32_t amount, uint32_t stereo)
 {
     uint32_t id = MSLOT_ID(k), s = (uint32_t)st[id], d = (uint32_t)st[id + 1u], i, n;
@@ -523,8 +511,7 @@ static void morph_slot(uint32_t *rs, uint32_t *rz, const engine_t *e, const int8
         return;                                         /* SMART: no live route in the saved patch here (AMOUNT 0, or a route a WILD roll made): left as the start has it */
     if (!a && (mrc & MC_WILD)) {                        /* AMOUNT 0 = nobody switched the route on (owner, 2026-10-28): SMART leaves it at 0 (above: a 0 of the Original); WILD rolls the amount too, SRC and DST untouched, on a
                                                          * stream of its own (rz: no other value of a saved End B moves), by the one %, with the guards of the active routes below and the cap of 4 active routes */
-        if (s == MS_MORPH || (d == MD_PAN && !stereo) || ((d == MD_PITCH || d == MD_VIB) && !(mrc & MC_PIT)) ||
-            (MD_ENGINE(d) && morph_tag(e, o, P_E0 + d - MD_E1, 1).kind != MK_CONT))
+        if (s == MS_MORPH || (d == MD_PAN && !stereo) || ((d == MD_PITCH || d == MD_VIB) && !(mrc & MC_PIT)) || MD_ENGINE(d))
             return;
         for (i = 0, n = 0; i < NMSLOT; i++) {           /* (the slots before this one as rolled, the others as they are) */
             const int8_t *q = i < k ? end : st;
@@ -549,13 +536,14 @@ static void morph_slot(uint32_t *rs, uint32_t *rz, const engine_t *e, const int8
         return;                                         /* (4b) a route from the fader itself: left whole (no feedback) */
     if (d == MD_PAN && !stereo)
         return;                                         /* rule 3b, the route too */
-    if (MD_ENGINE(d) && morph_tag(e, o, P_E0 + d - MD_E1, 1).kind != MK_CONT)
+    if (MD_ENGINE(d))
         return;                                         /* into a parameter the morph does not move: left alone */
     if ((d == MD_PITCH || d == MD_VIB) && !(mrc & MC_PIT)) {
         (void)mr_next(rs);                              /* v2: PITCH OFF: pitch modulation is left as it is (the draw it had) */
         return;
     }
-    if (!morph_route_fixed(e, o, s, d)) {
+    (void)o;
+    if (!morph_route_fixed(s, d)) {
         if (mr_below(rs, 100u) < amount) {
             for (i = 1, n = 0; i < MS_N; i++)
                 if (i != s && morph_src_ok(i) && !morph_loop(i, d))
@@ -565,7 +553,7 @@ static void morph_slot(uint32_t *rs, uint32_t *rz, const engine_t *e, const int8
         }
         if (mr_below(rs, 100u) < amount) {
             for (i = 1, n = 0; i < MD_N; i++)
-                if (i != d && morph_dst_ok(e, o, s, i, stereo))
+                if (i != d && morph_dst_ok(s, i, stereo))
                     cand[n++] = (uint8_t)i;
             if (n)
                 d = cand[mr_below(rs, n)];
@@ -586,34 +574,11 @@ static void morph_slot(uint32_t *rs, uint32_t *rz, const engine_t *e, const int8
  * rule: FM6), ENV 2, VEL, KEY, RAND; destinations only what the engine answers to: CUT, SHP, AMP, PAN (STEREO), the
  * continuous E1..E8 (no pitch-like, capped or loudness-limited one, no stepped one), RATE / DEPTH of an LFO that is used.
  * Moderate amounts (6 .. 24 of 64 with AMOUNT; a cutoff up to 16, unipolar sources only opening it; SHP up to 20). The route fades in as any route absent at one end (morph_apply) */
-static int morph_resp(const engine_t *e, const int8_t *end, uint32_t d)
+static int morph_resp(uint32_t d)
 {
-    if (d == MD_CUT)                                    /* DUELL 0.2.5: a multimode-filter engine answers to CUT even bypassed (WHEEL too), but a roll never
-                                                         * switches that filter on by a new route: only when it is not bypassed (0.2.9) */
-        return 1;                                           /* (DUELL 0.2.9 owner override: the multimode filter is on every engine, bypassed or not: a route to CUT may be added) */
-    if (d == MD_SHP)
-        return e == &ENG_ANALOG || e == &ENG_FM6 || e == &ENG_FORMANT || e == &ENG_NOISE ||
-               e == &ENG_PHASE || e == &ENG_TRIO || e == &ENG_WAVE;   /* (WAVE, DUELL: SHP is its POS; a new engine, no saved seed rolls differently) */
-    return 1;
+    return !morph_dead_dst(d);                          /* (CUT: filter A, bypassed or not, as DUELL 0.2.9; SHP: no reader in L/RRY) */
 }
-static int morph_cutlike(const engine_t *e, uint32_t k)   /* engine parameter k is a filter cutoff */
-{
-    return e == &ENG_LOFI && k == 7u;
-}
-static int morph_route_e_ok(const engine_t *e, const int8_t *o, uint32_t k, uint32_t stereo)
-{
-    mtag_t g = morph_tag(e, o, P_E0 + k, stereo);
-    if (g.kind != MK_CONT || (g.flags & (MF_ZERO | MF_CAP | MF_RISE | MF_CEIL | MF_FLOOR)) || morph_pitchlike_e(e, o, k))
-        return 0;
-    if (e == &ENG_LOFI && k == 3u)
-        return 0;                                       /* CRSH: the hold / bit steps */
-    if (e == &ENG_NOISE && k == 7u)
-        return 0;                                       /* CRSH */
-    if (e == &ENG_FM6 && k != 1u && k != 2u)
-        return 0;                                       /* only FB and MLVL answer smoothly */
-    return 1;
-}
-static void morph_add_routes(uint32_t *rs, const engine_t *e, const int8_t *o, int8_t *end, uint32_t amount, uint32_t stereo)
+static void morph_add_routes(uint32_t *rs, int8_t *end, uint32_t amount, uint32_t stereo)
 {
     uint32_t tries, k, i, n, active = 0;
     for (k = 0; k < NMSLOT; k++)
@@ -632,19 +597,16 @@ static void morph_add_routes(uint32_t *rs, const engine_t *e, const int8_t *o, i
             }
         }
         for (s = MS_LFO; s < MS_N; s++)
-            if (s == MS_LFO || s == MS_LFO2 || (s == MS_ENV && !e->ownenv) || s == MS_ENV2 || s == MS_VEL || s == MS_KEY ||
+            if (s == MS_LFO || s == MS_LFO2 || s == MS_ENV || s == MS_ENV2 || s == MS_VEL || s == MS_KEY ||
                 s == MS_RAND)
                 ss[ns++] = (uint8_t)s;
         s = ss[mr_below(rs, ns)];
         for (d = MD_CUT; d < MD_N_026; d++) {           /* (0.2.7's destinations: never a new route, as the sends) */
             if (d == MD_CUT || d == MD_SHP || d == MD_AMP) {
-                if (!morph_resp(e, end, d))
+                if (!morph_resp(d))
                     continue;
             } else if (d == MD_PAN) {
                 if (!stereo)
-                    continue;
-            } else if (MD_ENGINE(d)) {
-                if (!morph_route_e_ok(e, o, d - MD_E1, stereo))
                     continue;
             } else if (d == MD_RATE || d == MD_DEPTH) {
                 if (!lfo1 || morph_loop(s, d))
@@ -666,12 +628,12 @@ static void morph_add_routes(uint32_t *rs, const engine_t *e, const int8_t *o, i
             continue;
         d = dd[mr_below(rs, nd)];
         m = 6u + mr_below(rs, 1u + amount * 18u / 100u);   /* 6 .. 24 (heard: CUT 6 is +-0.4 octave) */
-        if (d == MD_CUT || (MD_ENGINE(d) && morph_cutlike(e, d - MD_E1)))
+        if (d == MD_CUT)
             m = m > 16u ? 16u : m;                      /* a cutoff: ~1 octave at most (a dead filter is no sound) .. */
         else if (d == MD_SHP)
             m = m > 20u ? 20u : m;
         a = (mr_below(rs, 2u) ? -(int32_t)m : (int32_t)m);
-        if (a < 0 && !MS_BIPOLAR(s) && (d == MD_CUT || (MD_ENGINE(d) && morph_cutlike(e, d - MD_E1))))
+        if (a < 0 && !MS_BIPOLAR(s) && d == MD_CUT)
             a = -a;                                     /* .. and an envelope / VEL never closes it below the floor */
         for (i = 0, n = 0; i < NMSLOT; i++)
             if (!(end[MSLOT_ID(i)] && end[MSLOT_ID(i) + 1u] && end[MSLOT_ID(i) + 2u])) {
@@ -688,99 +650,7 @@ static void morph_add_routes(uint32_t *rs, const engine_t *e, const int8_t *o, i
     }
 }
 
-/* ------------------------------------------------- FM6: the patch bytes (A) --- */
-/* An FM6 sound is its patch (fm6_patch, 155 bytes), not t->p. The morph moves 65 of its bytes: per operator the four EG
- * rates and four EG levels and the output level OL (54), the pitch EG's rates and levels 1..3 (7), the LFO's speed, delay,
- * pitch depth and amp depth (4). The ends hold them (absolute, as the t->p ones), the blend goes into fm6_eff's copy of the
- * patch (eng_fm6.c fm6_sync, through fm6_morph), as live + (blend - base): the stored patch is never touched. Left out
- * (pitch-like or not fadable): algorithm, operator ratio / fine / detune / fixed-frequency mode, keyboard level and rate
- * scaling, sensitivities, LFO wave / sync, transpose. FB, MEG, MLVL, VMOD are the macros (t->p, tagged above) */
-#define NFM 65u
-static uint32_t fm_byte(uint32_t i)
-{
-    if (i < 54u)
-        return (i / 9u) * FP_OP + ((i % 9u) < 4u ? FP_R1 + i % 9u : (i % 9u) < 8u ? FP_L1 + i % 9u - 4u : FP_OL);
-    return i < 58u ? FP_PR1 + i - 54u : i < 61u ? FP_PL1 + i - 58u : FP_LFS + i - 61u;
-}
-typedef struct { uint8_t ex, zero, lo, rise, cap, pg; } fmtag_t;   /* lo: not below min(orig, lo); rise: at most rise above; cap: |offset|; pg: left by PITCH OFF (still draws) */
-static fmtag_t fm_tag(uint32_t i, const uint8_t *bp, uint32_t car)
-{
-    fmtag_t g = {0, 0, 0, 99, 99, 0};
-    uint32_t pitem = (i >= 54u && i < 61u) || i == 63u;   /* the pitch EG and the LFO's pitch depth (v2: pitch items) */
-    if (mrc & MC_WILD) {
-        /* no rule */
-    } else if (i < 54u) {
-        uint32_t j = i % 9u;
-        if ((car >> (i / 9u)) & 1u) {                   /* a carrier: it must stay heard, and not much louder */
-            if (j == 7u)
-                g.ex = 1;                               /* L4: the rest level */
-            else if (j == 0u || j == 3u)
-                g.lo = 40;                              /* R1, R4: no endless attack or release (owner 2026-10-11: faster may be) */
-            else if (j < 3u)
-                g.cap = bp[(i / 9u) * 9u + 6u] < 80u ? 3 : 8;   /* R2, R3: how fast the body decays = its loudness where it
-                                                         * decays (L3 under 80: a pluck's R2 +5 was -3 dB, +19 -9 dB) */
-            else if (j < 7u) {
-                g.lo = 60;                              /* L1 .. L3: the loudness of the note's body: +-1 (~0.75 dB; at 99,
-                                                         * the usual, every move is down) */
-                g.rise = g.cap = 1;
-            } else {
-                g.lo = 75;                              /* OL of a carrier: the loudness: +-2 steps (~1.5 dB) at most, either */
-                g.rise = 2;                             /* way (a fixed AMOUNT move with "never louder" was always ~-14 dB;
-                                                         * +-6 still left -5 dB on three carriers at 99). The timbre is the
-                                                         * modulators' (+-12) */
-                g.cap = 2;
-            }
-        } else if (j > 3u) {
-            g.rise = g.cap = 12;                        /* a modulator's levels: brighter not without bounds; +-12 either way */
-        }
-    } else if (i < 61u) {
-        /* (PITCH OFF leaves the pitch EG below: pitem. A test here read bp[FP_PL1..] = patch offsets 130..133 of this
-         * 65-byte fm_byte-order copy, i.e. the next end's history: whether these items drew depended on it, so a seed
-         * did not always give the same end. Gone: PITCH OFF they always draw (as nearly every time before)) */
-        if (i >= 58u)
-            g.cap = 8;                                  /* its levels: a few semitones at most */
-    } else if (i == 63u) {
-        g.zero = !(mrc & MC_PIT);                       /* the LFO's pitch depth (3a; PITCH ON lifts it) */
-    } else if (i == 64u) {
-        g.rise = 40;
-    }
-    if (pitem && !(mrc & MC_PIT)) {                     /* PITCH OFF: never touched, also in WILD */
-        g.pg = !g.ex;
-        g.ex = 1;
-    }
-    return g;
-}
-/* ROLL CHAINED: one step from the start bs (the end's bytes before this roll), the limits measured against the Original bo (lo, rise and the cap as a window
- * around it, as morph_cont), the start always inside; bs == bo: the roll of before */
-static void morph_fm_roll(const uint8_t *bo, const uint8_t *bs, uint32_t car, uint8_t *end, uint32_t amount, uint32_t seed, uint32_t part)
-{
-    uint32_t rs = morph_state(seed, part + 4u), i;
-    memcpy(end, bs, NFM);
-    if (!amount)
-        return;
-    amount = amount > 100u ? 100u : amount;
-    for (i = 0; i < NFM; i++) {
-        fmtag_t g = fm_tag(i, bs, car);
-        int32_t v = bs[i] > 99 ? 99 : bs[i], o = bo[i] > 99 ? 99 : bo[i], maxoff = (int32_t)amount * 99 / 100, lo, hi;
-        if (g.ex && !g.pg)
-            continue;
-        if (g.ex || (g.zero && !o)) {
-            (void)mr_next(&rs);                         /* (the draw it had) */
-            continue;
-        }
-        if (maxoff > g.cap)
-            maxoff = g.cap;
-        lo = o < g.lo ? o : g.lo;
-        hi = o + g.rise < 99 ? o + g.rise : 99;
-        if (g.cap < 99) {                               /* (the cap: at most that far from the Original, as MF_CAP) */
-            lo = lo > o - g.cap ? lo : o - g.cap;
-            hi = hi < o + g.cap ? hi : o + g.cap;
-        }
-        lo = lo < v ? lo : v;                           /* (the start is always allowed) */
-        hi = hi > v ? hi : v;
-        end[i] = (uint8_t)morph_move(&rs, v, maxoff, lo, hi);   /* (the other way when blocked) */
-    }
-}
+/* (DUELL's FM6 patch morph is gone with the engine: L/RRY has no FM6 patch bytes, 4.4a) */
 
 /* rule 4, simply: values moved back toward the original only (the AMOUNT bound holds) */
 /* a cutoff floor (0..127): a move below min(o, fl) goes the other way by as much (the move stays whole), else the floor */
@@ -928,57 +798,45 @@ static void morph_env_level(int8_t *end, const int8_t *o, const int8_t *st, uint
     if (s < 48 && d > 0 && (end[P_DEC] > dhi || end[P_DEC] < dlo))
         end[P_DEC] = (int8_t)(end[P_DEC] > dhi ? dhi : dlo);
 }
-/* PHASE: the resonant waves (RSAW RTRI RTRP) sound ~9 dB under the others: a roll stays on the Original's side */
-#define PD_RESO(w) ((w) >= 5)
-static int32_t morph_pd_side(int32_t w, int32_t o)      /* w moved into o's side (never o itself when there is another) */
-{
-    int32_t lo = PD_RESO(o) ? 5 : 0, n = PD_RESO(o) ? 3 : 5, k;
-    if (PD_RESO(w) == PD_RESO(o))
-        return w;
-    k = lo + (w + o) % (n - 1);
-    return k >= o ? k + 1 : k;
-}
 /* the multimode filter's rolled CUT / RES / MODE / SLOPE (SMART and WILD, DUELL 0.2.9): never silent or dead. The output is the low-pass, band-pass and
  * high-pass shares of the rolled MODE (voice.c uf_run: lw, bw, hw in 1/64); a share of at least a quarter needs its CUT where the content is:
  * band-pass share: CUT 30 .. 50 (~500 Hz .. 2 kHz) and SLOPE 12 dB, RES at most MORPH_UF_RESBP (a thin resonant slice otherwise); low-pass share
  * also CUT >= 45 (~1.3 kHz); high-pass share also CUT <= 40 (with a band-pass share) or <= 25 (~210 Hz, without one). So no kill zone, no closed end,
  * and the level stays within ~26 dB of the original's. The original's own CUT is kept where it is already beyond and its MODE is near (within 8).
  * RES never above max(original, MORPH_UF_RES), no self-oscillation level */
+/* L/RRY 4.4a: MODE is a choice (LP BP HP NOTCH) since 4.3a, not DUELL's blend. The windows are DUELL's at the blend's three pure points (LP = blend 0, BP = 64, HP = 127): low-pass CUT
+ * >= MORPH_UF_LO, band-pass MORPH_UF_BP0 .. MORPH_UF_BP1 (SLOPE 12 dB, RES at most MORPH_UF_RESBP), high-pass <= MORPH_UF_HI; NOTCH has no window (never silent, as the TWIN rule's notch).
+ * The start's own CUT is kept where it already is beyond when its MODE is the same (DUELL: within 8 of the blend) */
 static void morph_uf_range(const int8_t *o, int32_t m, int32_t *lo, int32_t *hi, int32_t *bp)
 {
     int32_t oc = o[P_FREEA];
-    int32_t bw = m <= 64 ? m : (127 - m) * 64 / 63, lw = m < 64 ? 64 - m : 0, hw = m > 64 ? (m - 64) * 64 / 63 : 0;
     *lo = 0;
     *hi = UF_STEPS;
-    *bp = bw >= 16;
-    if (bw >= 16) {
-        *lo = lw >= 16 ? MORPH_UF_LO : hw >= 16 ? 24 : MORPH_UF_BP0;
-        *hi = hw >= 16 ? 30 : MORPH_UF_BP1;
-    } else if (lw >= 16) {
+    *bp = m == MF_A_BP;
+    if (m == MF_A_BP) {
+        *lo = MORPH_UF_BP0;
+        *hi = MORPH_UF_BP1;
+    } else if (m == MF_A_LP) {
         *lo = MORPH_UF_LO;
-    } else if (hw >= 16) {
+    } else if (m == MF_A_HP) {
         *hi = MORPH_UF_HI;
     }
-    if (m - o[P_FREEC] <= 8 && o[P_FREEC] - m <= 8) {
+    if (m == o[P_FREEC]) {
         *lo = oc < *lo ? oc : *lo;
         *hi = oc > *hi ? oc : *hi;
     }
 }
-/* ROLL CHAINED: o is the start (the end before this roll: MODE comes back toward the start's, CUT within AMOUNT of the start's, the start's own CUT kept as the
- * Original's was); org the Original, for the RES ceilings only (never above max(Original, start, the ceiling)). o == org: as before */
+/* ROLL CHAINED: o is the start (the end before this roll: MODE goes back to the start's when the CUT it needs is not within AMOUNT of the start's, the start's own CUT kept as the
+ * Original's was); org the Original, for the RES ceilings only (never above max(Original, start, the ceiling)). o == org: as before. (DUELL walked the blend back 2 steps at a time; a choice
+ * goes back in one) */
 static void morph_uf_safe(const int8_t *o, const int8_t *org, int8_t *end, uint32_t amount)
 {
-    int32_t m = end[P_FREEC], c = end[P_FREEA], oc = o[P_FREEA], lo, hi, bp, cc, lim = (int32_t)amount * UF_STEPS / 100, it;
+    int32_t m = clamp(end[P_FREEC], MF_A_LP, MF_A_NOTCH), c = end[P_FREEA], oc = o[P_FREEA], lo, hi, bp, cc, lim = (int32_t)amount * UF_STEPS / 100;
     int32_t rq = org[P_FREEB] > o[P_FREEB] ? org[P_FREEB] : o[P_FREEB];   /* (the RES the ceilings allow) */
-    for (it = 0; it < 64; it++) {                         /* MODE comes back toward the original's until the CUT it needs is within AMOUNT of the original's */
-        morph_uf_range(o, m, &lo, &hi, &bp);
-        cc = c < lo ? lo : c > hi ? hi : c;
-        if (((cc - oc <= lim && oc - cc <= lim) && !(bp && o[P_FREED] == 2 && !(mrc & MC_WILD))) || m == o[P_FREEC])   /* (SMART never changes SLOPE, 2026-10-27: a 24 dB original is not rolled into a band-pass, which would need 12 dB) */
-            break;
-        m += m < o[P_FREEC] ? 2 : -2;
-        if ((m - o[P_FREEC]) * (end[P_FREEC] - o[P_FREEC]) < 0)
-            m = o[P_FREEC];
-    }
+    morph_uf_range(o, m, &lo, &hi, &bp);
+    cc = c < lo ? lo : c > hi ? hi : c;
+    if (m != o[P_FREEC] && (cc - oc > lim || oc - cc > lim || (bp && o[P_FREED] == 2 && !(mrc & MC_WILD))))
+        m = o[P_FREEC];
     end[P_FREEC] = (int8_t)m;
     morph_uf_range(o, m, &lo, &hi, &bp);
     end[P_FREEA] = (int8_t)(c < lo ? lo : c > hi ? hi : c);
@@ -991,19 +849,25 @@ static void morph_uf_safe(const int8_t *o, const int8_t *org, int8_t *end, uint3
     if (end[P_FREEB] > (rq > MORPH_UF_RES ? rq : MORPH_UF_RES))
         end[P_FREEB] = (int8_t)(rq > MORPH_UF_RES ? rq : MORPH_UF_RES);
 }
-/* filter 1 on ANALOG and TRIO (they had a low-pass / their own types with the "no dead path" rule, morph_open, before cloud job J): a band-pass or high-pass share keeps its band where the notes
- * are over the sweeps of ENV 1 / ENV 2 / LFO -> FLT (dial steps: a depth of 58 moves the cutoff 58 steps, 7 octaves: the band left the sound). The depths go back toward the original's, then CUT
- * (inside morph_uf_safe's window again). A sine or triangle source has no harmonics above the note: its window is the lower one */
-static void morph_uf_open(const int8_t *o, int8_t *end, const engine_t *e)
+/* a source without harmonics above the note (DUELL: ANALOG SIN / TRI): OSC 1 TRI or SINE and no other source but the SUB (a sine) */
+static int morph_sine(const int8_t *x)
+{
+    int32_t m1 = x[XW_BASE + X_O1MODEL];
+    return (m1 == MO_TRI || m1 == MO_SINE) && !x[XW_BASE + X_O2LVL] && !x[XW_BASE + X_NZLVL] && !x[XW_BASE + X_RGLVL];
+}
+/* filter A (ANALOG's rule since cloud job J: L/RRY is a subtractive voice, the engine the 4.3a voice path stands on): a band-pass or high-pass keeps its band where the notes are over the sweeps
+ * of ENV 1 / ENV 2 / LFO -> FLT (dial steps: a depth of 58 moves the cutoff 58 steps, 7 octaves: the band left the sound). The depths go back toward the original's, then CUT (inside
+ * morph_uf_safe's window again). A sine or triangle source has no harmonics above the note: its window is the lower one */
+static void morph_uf_open(const int8_t *o, int8_t *end)
 {
     static const uint8_t DEP[4] = {P_ED_FLT, P_E2FLT, P_LD_FLT, P_L2FLT};
-    int32_t m = end[P_FREEC], bw = m <= 64 ? m : (127 - m) * 64 / 63, lw = m < 64 ? 64 - m : 0, hw = m > 64 ? (m - 64) * 64 / 63 : 0, wlo, whi, k, over;
+    int32_t m = end[P_FREEC], wlo, whi, k, over;
     uint32_t tried = 0;
-    int sine = e == &ENG_ANALOG && (end[P_E0] == 2 || end[P_E0] == 3);   /* (WAVE 2 TRI, 3 SIN: eng_analog.c N_ANALOG_WAVE) */
-    if (bw < 16 && hw < 16)
+    int sine = morph_sine(end);
+    if (m != MF_A_BP && m != MF_A_HP)
         return;
-    wlo = bw >= 16 && hw < 16 ? MORPH_UF_BP0 - 6 : -255;
-    whi = bw >= 16 ? (sine ? MORPH_UF_BP1 : MORPH_UF_BP1 + 10) : MORPH_UF_HI + 15;
+    wlo = m == MF_A_BP ? MORPH_UF_BP0 - 6 : -255;
+    whi = m == MF_A_BP ? (sine ? MORPH_UF_BP1 : MORPH_UF_BP1 + 10) : MORPH_UF_HI + 15;
     {                                                   /* the window the Original's own depths leave at this CUT (a roll that moved MODE to a band-pass share may find even those outside it: then the depths may stay as long as they are no worse) */
         int8_t mine[4];
         for (k = 0; k < 4; k++) {
@@ -1014,11 +878,8 @@ static void morph_uf_open(const int8_t *o, int8_t *end, const engine_t *e)
         for (k = 0; k < 4; k++)
             end[DEP[k]] = mine[k];
     }
-    while (morph_band_over(end, P_FREEA, wlo, whi) > over) {    /* item 154 (owner: "AMOUNT 50 / 60 and the LFO depth still 17 %"). The four depths go back TOGETHER, one step at a time, the one that moved the most first (ties: the order of DEP).
-                                                         * Before, each went all the way back to the Original before the next was touched, so the LFO 1 depth (third in the list) was sent home to its Original whenever an
-                                                         * ENV 2 or LFO 2 depth rolled far (BREADBIN, AMOUNT 50: 23 % of the rolls, 32 % at 60) although a part of the way was enough. And a depth that would only be
-                                                         * allowed with a smaller sweep first goes the other way by as much (the roll's own rule for a move that leaves its interval), as the Original is the sweep that is
-                                                         * allowed, so the End differs from it whenever the window has room on the other side */
+    while (morph_band_over(end, P_FREEA, wlo, whi) > over) {    /* item 154: the four depths go back TOGETHER, one step at a time, the one that moved the most first (ties: the order of DEP); a depth
+                                                         * that would only be allowed with a smaller sweep first goes the other way by as much */
         int32_t best = -1, far = 0, v, mv;
         for (k = 0; k < 4; k++) {
             int32_t d = end[DEP[k]] - o[DEP[k]];
@@ -1042,37 +903,13 @@ static void morph_uf_open(const int8_t *o, int8_t *end, const engine_t *e)
         end[DEP[best]] = (int8_t)(v + (o[DEP[best]] > v ? 1 : -1));
     }
 }
-/* ROLL CHAINED: o the Original (the windows of the loudness rules), st the start (this roll's moves, the sides a value stays on; st == o: as before) */
-static void morph_rules(const engine_t *e, const int8_t *o, const int8_t *st, int8_t *end, uint32_t amount)
+/* ROLL CHAINED: o the Original (the windows of the loudness rules), st the start (this roll's moves, the sides a value stays on; st == o: as before). The envelope's loudness, and ANALOG's
+ * cutoff steering on filter A's CUT with filter A's MODE as the type (0 LP, 1 BP, 2 HP, 3 NOTCH: morph_cut_steer's numbering) */
+static void morph_rules(const int8_t *o, const int8_t *st, int8_t *end, uint32_t amount)
 {
     int32_t win = (int32_t)amount * 127 / 100;
     morph_env_level(end, o, st, amount);
-    if (e == &ENG_ANALOG || e == &ENG_TRIO) {           /* their own cutoff steering (morph_cut_steer, with ENV 1 / ENV 2 / matrix routes to CUT) went with their own filters in cloud job J and
-                                                         * left a hole: filter 1 closed by a rolled ENV -> FLT depth and a lower CUT silenced the sound (28 of 500 ANALOG SOFT PAD rolls under x0.1,
-                                                         * the smallest x0.05; wave5: 1). Steered again, on filter 1's CUT with filter 1's MODE as the type (morph_uf_safe then keeps its windows) */
-        int32_t m = end[P_FREEC], bw = m <= 64 ? m : (127 - m) * 64 / 63, lw = m < 64 ? 64 - m : 0, hw = m > 64 ? (m - 64) * 64 / 63 : 0;
-        morph_cut_steer(end, o, st, P_FREEA, win, bw >= lw && bw >= hw && bw >= 16 ? 1 : hw > lw ? 2 : 0);
-    }
-    if (e == &ENG_PHASE) {                              /* (SMART never sets the waves, MF_SW: with the start as the side this stays a no-op on a chain too) */
-        int32_t wa = st[P_E1] ? st[P_E1] - 1 : st[P_E0];   /* WAVE2 "-" plays WAVE */
-        end[P_E0] = (int8_t)morph_pd_side(end[P_E0], st[P_E0]);
-        if (end[P_E1] && PD_RESO(end[P_E1] - 1) != PD_RESO(wa))
-            end[P_E1] = (int8_t)(morph_pd_side(end[P_E1] - 1, wa) + 1);
-    }
-    if (e == &ENG_LOFI) {
-        {                                               /* the tone floor: min(Original, start, 20); a move below it turns the other way about the start */
-            int32_t s7 = st[P_E7], m7 = o[P_E7] < 20 ? o[P_E7] : 20, y = 2 * s7 - end[P_E7];
-            m7 = s7 < m7 ? s7 : m7;
-            if (end[P_E7] < m7)
-                end[P_E7] = (int8_t)(y <= 127 ? y : m7);
-        }
-        if (st[P_E0] == BITS_8BIT) {                    /* CRSH > 64 drops the 8-bit chip to a 4-bit staircase (eng_lofi.c): */
-            if (st[P_E3] > 64 && end[P_E3] < 65)        /* the end stays on its side of it (3-bis: no cliff; the start's side, the Original's on a chain of SMART rolls) */
-                end[P_E3] = 65;
-            else if (st[P_E3] <= 64 && end[P_E3] > 64)
-                end[P_E3] = 64;
-        }
-    }
+    morph_cut_steer(end, o, st, P_FREEA, win, clamp(end[P_FREEC], MF_A_LP, MF_A_NOTCH));
 }
 
 /* The wake-up coin of rule 3g (DUELL 0.2.11: a stage that is off in the Original was switched on with half the chance, stream rs4) is gone (owner, 2026-10-28): SMART rolls every smooth value also from 0.
@@ -1082,9 +919,9 @@ static void morph_rules(const engine_t *e, const int8_t *o, const int8_t *st, in
  * tags made on the roll's stream, so every other id of a stored seed rolls the End B it did (a patch's saved End B is regenerated from its seed): ROOT and SCALE (a pitch item) a step only
  * with PITCH on, ALLOC (a hard switch) only in WILD, ANALOG's TYPE (a fade) on ANALOG in both, the DUCK NOTE (never) none; a step is a coin, then, when it comes up, a second draw for the
  * other value. Their new values roll from a stream of their own (morph_roll_pure rsx) */
-static void morph_old_draw(uint32_t *r, const engine_t *e, uint32_t id, uint32_t amount)
+static void morph_old_draw(uint32_t *r, uint32_t id, uint32_t amount)
 {
-    uint32_t step = id == P_RES2 || id == P_DRV2 ? (mrc & MC_PIT) : id == P_TWTYPE ? (mrc & MC_WILD) : id == P_BLEND ? e == &ENG_ANALOG : 0u;
+    uint32_t step = id == P_RES2 || id == P_DRV2 ? (mrc & MC_PIT) : id == P_TWTYPE ? (mrc & MC_WILD) : id == P_BLEND ? 1u : 0u;   /* (BLEND: the draws it had on ANALOG, the engine the voice path stood on) */
     if (step && mr_below(r, 100u) < amount)
         (void)mr_next(r);
 }
@@ -1092,20 +929,24 @@ static void morph_old_draw(uint32_t *r, const engine_t *e, uint32_t id, uint32_t
 /* The TWIN FILTER's five ids and the extension slots (ext.h) roll from a stream of their own (part + 40), in id order and then slot order, after every other value: the draws of every
  * other id are the ones they were. A value rolls by its tag (morph_tag: continuous, or a switch that flips in WILD only); TYPE never to OFF nor, on WAVE and PHYS, to COMB */
 /* ROLL CHAINED: o the tags (morph_roll_full tv), st the start the values step from, org the Original (morph_cont's limits) */
-static void morph_twin_roll(const int8_t *o, const int8_t *st, const int8_t *org, int8_t *end, const engine_t *e, uint32_t amount, uint32_t seed, uint32_t part)
+static void morph_twin_roll(const int8_t *o, const int8_t *st, const int8_t *org, int8_t *end, uint32_t amount, uint32_t seed, uint32_t part)
 {
     static const uint8_t TWI[5] = {P_RES2, P_DRV2, P_TWTYPE, P_BLEND, P_CUT2};
     uint32_t rsx = morph_state(seed, part + 40u), k, comb = end[P_TWTYPE] == TT_COMB;
-    for (k = 0; k < 5u + X_L2BLD + 1u; k++) {      /* (X15 .. X24 appended after X14: the draws of every value before them are the ones they were) */
+    for (k = 0; k < 5u + NX; k++) {                /* (X15 .. X24 appended after X14, L/RRY's X28 .. X63 after them (X25 .. X27 never roll, no draw): the draws of every value before them are the ones they were) */
         uint32_t id = k < 5u ? TWI[k] : XW_BASE + k - 5u;
-        mtag_t g = morph_tag(e, o, id, 1);
-        const param_desc_t *pd = morph_desc(e, id);
+        mtag_t g = morph_tag(o, id, 1);
+        const param_desc_t *pd = morph_desc(id);
         if (g.kind == MK_CONT) {
-            end[id] = (int8_t)morph_cont(&rsx, g, pd, st[id], org[id], amount);
+            int32_t v = morph_cont(&rsx, g, pd, st[id], org[id], amount);
+            if (!(g.flags & MF_SW))
+                end[id] = (int8_t)v;
         } else if (g.kind == MK_STEP) {
-            if (mr_below(&rsx, 100u) < amount)
-                end[id] = (int8_t)(id == P_TWTYPE ? morph_other(&rsx, TT_LP, (e == &ENG_WAVE || e == &ENG_PHYS ? TT_LADDER : TT_COMB) + 1, st[id])
-                                                  : morph_other(&rsx, pd->min, pd->max + 1, st[id]));
+            if (mr_below(&rsx, 100u) < amount) {
+                int32_t v = id == P_TWTYPE ? morph_other(&rsx, TT_LP, TT_COMB + 1, st[id]) : morph_other(&rsx, pd->min, pd->max + 1, st[id]);
+                if (!(g.flags & MF_SW))                  /* (SMART with PITCH on: COARSE and FM RATIO drawn, not set) */
+                    end[id] = (int8_t)v;
+            }
         } else if (g.kind == MK_EX && (g.flags & MF_DRAW)) {
             (void)mr_next(&rsx);
         }
@@ -1132,10 +973,12 @@ static void morph_twin_rules(const int8_t *o, const int8_t *st, int8_t *end)
 {
     int32_t ty = end[P_TWTYPE], link = end[XW_BASE + X_LINK], be = link ? end[P_FREEA] : 0, eo = morph_twin_eff(o), es = morph_twin_eff(st), lo = -255, hi = 255, c, cd;   /* (1.0: with LINK on CUTOFF 2 is whole semitones, the window is in dial steps) */
     int32_t el = eo < es ? eo : es, eh = eo > es ? eo : es;
+    if (end[P_FREEB] > (st[P_FREEB] > 100 ? st[P_FREEB] : 100) && end[P_DRV2] > st[P_DRV2])
+        end[P_DRV2] = st[P_DRV2];                       /* (L/RRY: the same rule for filter A and DIRT A's DRIVE) */
     if (ty <= TT_OFF)
         return;
-    if (ty != TT_COMB && end[P_RES2] > (st[P_RES2] > 100 ? st[P_RES2] : 100) && end[P_DRV2] > st[P_DRV2])
-        end[P_DRV2] = st[P_DRV2];
+    if (ty != TT_COMB && end[P_RES2] > (st[P_RES2] > 100 ? st[P_RES2] : 100) && end[XW_BASE + X_DBDRV] > st[XW_BASE + X_DBDRV])
+        end[XW_BASE + X_DBDRV] = st[XW_BASE + X_DBDRV];   /* (L/RRY: filter B's drive is DIRT B's, the unit after it in PARAL; DIRT A's below) */
     if (ty == TT_LP || ty == TT_LADDER)
         lo = el < MORPH_UF_LO ? el : MORPH_UF_LO;
     else if (ty == TT_HP)
@@ -1160,7 +1003,7 @@ static void morph_twin_rules(const int8_t *o, const int8_t *st, int8_t *end)
  * tag view) but the Original's on / off locks (DUCK DEPTH, INSERT TYPE, TWIN TYPE); every zero lock (a matrix amount, MF_ZERO, ARP off, the pitch draws) is a
  * zero of the Original; the limits of the tags (MF_CAP, MF_FLOOR, MF_CEIL, MF_RISE) and the loudness rules' windows stay around the Original; the moves of a
  * rule (the other way, back toward) and the sides a value keeps are the start's. Pure: the same arguments give the same end; st == org: the roll of before */
-static void morph_roll_step(const int8_t *org, const int8_t *st, int8_t *end, const engine_t *e, uint32_t amount, uint32_t seed,
+static void morph_roll_step(const int8_t *org, const int8_t *st, int8_t *end, uint32_t amount, uint32_t seed,
                             uint32_t part, uint32_t stereo)
 {
     uint32_t rs = morph_state(seed, part), rs2 = morph_state(seed, part + 8u), rs3 = morph_state(seed, part + 16u), rs5 = morph_state(seed, part + 32u), rs6 = morph_state(seed, part + 48u), id;
@@ -1171,16 +1014,18 @@ static void morph_roll_step(const int8_t *org, const int8_t *st, int8_t *end, co
     tv[P_DKDEP] = org[P_DKDEP];                          /* (SMART: a ducker off in the saved patch stays off, one a roll turned to 0 rolls again) */
     tv[P_ITYPE] = org[P_ITYPE];                          /* (SMART: an INSERT off in the saved patch: its values stay) */
     tv[P_TWTYPE] = org[P_TWTYPE] ? st[P_TWTYPE] : org[P_TWTYPE];   /* (TWIN TYPE OFF in the saved patch: never switched on, its values held) */
+    tv[XW_BASE + X_DATYPE] = org[XW_BASE + X_DATYPE];    /* (L/RRY: a DIRT unit OFF in the saved patch: its values stay, as the INSERT's) */
+    tv[XW_BASE + X_DBTYPE] = org[XW_BASE + X_DBTYPE];
     if (!amount)
         return;
     amount = amount > 100u ? 100u : amount;
     for (id = 0; id < P_COUNT; id++) {
-        mtag_t g = morph_tag(e, o, id, stereo);
-        const param_desc_t *pd = e == &ENG_WAVE && id == P_E6 ? &MORPH_E7_OLD : morph_desc(e, id);
+        mtag_t g = morph_tag(o, id, stereo);
+        const param_desc_t *pd = morph_desc(id);
         uint32_t *r = id >= P_E2FLT && id <= P_L2SHP ? &rs2 : &rs;   /* (ENV 2 / LFO 2 DEST: their own stream, so a seed of
                                                                        * before draws every other value as it did) */
         if (MORPH_OLD(id)) {                             /* the TWIN FILTER's ids: the draws they had (task 3 rolls their new values) */
-            morph_old_draw(r, e, id, amount);
+            morph_old_draw(r, id, amount);
             continue;
         }
         if (id == P_KTRK) {                              /* 0.2.21: KEY TRK, on a stream of its own (morph_tag) */
@@ -1188,16 +1033,16 @@ static void morph_roll_step(const int8_t *org, const int8_t *st, int8_t *end, co
                 end[id] = (int8_t)morph_cont(&rs5, g, pd, st[id], org[id], amount);
             continue;
         }
-        if (id >= P_FREEA && id <= P_FREED && e->ufilt) {   /* DUELL 0.2.2: the filter's CUT, RES (0.2.9: MODE, SLOPE): rs3 (so a seed of before draws every */
+        if (id >= P_FREEA && id <= P_FREED) {   /* DUELL 0.2.2: the filter's CUT, RES (0.2.9: MODE, SLOPE): rs3 (so a seed of before draws every */
             if (id == P_FREED)                           /* other value as it did); the SLICER's draws they had stay on rs */
                 (void)mr_next(r);
             else if ((mrc & MC_WILD) && mr_below(r, 100u) < amount)
                 (void)mr_next(r);
             if (g.kind == MK_CONT)
                 end[id] = (int8_t)morph_cont(&rs3, g, pd, st[id], org[id], amount);
-            else if (g.kind == MK_FADE && mr_below(&rs3, 100u) < amount) {
+            else if ((g.kind == MK_FADE || g.kind == MK_STEP) && mr_below(&rs3, 100u) < amount) {
                 int32_t v = morph_other(&rs3, pd->min, pd->max + 1, st[id]);
-                if (!(g.flags & MF_SW))                  /* (SMART: SLOPE is a switch, the draws are made and the start's stays) */
+                if (!(g.flags & MF_SW))                  /* (SMART: MODE and SLOPE are switches (MK_HARD: no draw); WILD flips them) */
                     end[id] = (int8_t)v;
             }
         } else if (g.kind == MK_CONT) {
@@ -1224,7 +1069,7 @@ static void morph_roll_step(const int8_t *org, const int8_t *st, int8_t *end, co
                     end[id] = (int8_t)v;
             }
         } else if (g.kind == MK_SLOT && id >= P_M1SRC && (id - P_M1SRC) % 3u == 0u) {
-            morph_slot(&rs, &rs6, e, o, st, org, end, (id - P_M1SRC) / 3u, amount, stereo);
+            morph_slot(&rs, &rs6, o, st, org, end, (id - P_M1SRC) / 3u, amount, stereo);
         }
     }
     /* (owner, 2026-10-28: the bypass guard that held the depths of ENV, ENV 2, LFO 1 and LFO 2 to MULTI CUTOFF at 0 while the Original's filter is bypassed is gone: the filter is bypassed only in the editor's test bypass, which rolls too) */
@@ -1232,24 +1077,23 @@ static void morph_roll_step(const int8_t *org, const int8_t *st, int8_t *end, co
                                                          * entry and draw are those of the legacy DUCK HOLD (0.2.5: never read, value never moved) it replaced, so the streams of old seeds
                                                          * (a patch's saved End B) stay */
     if (mrc & MC_WILD)                                  /* SMART adds no route (owner, 2026-10-12) */
-        morph_add_routes(&rs, e, o, end, amount, stereo);
+        morph_add_routes(&rs, end, amount, stereo);
     if (!(mrc & MC_WILD))
-        morph_rules(e, org, st, end, amount);                 /* (WILD: no dead-filter, resonance, tone or loudness rule) */
-    if (e->ufilt)
-        morph_uf_safe(st, org, end, amount);                 /* (the multimode filter, SMART and WILD: never a silent or dead combination) */
-    if ((e == &ENG_ANALOG || e == &ENG_TRIO) && !(mrc & MC_WILD))
-        morph_uf_open(st, end, e);
-    morph_twin_roll(o, st, org, end, e, amount, seed, part);     /* the TWIN FILTER's, the sub's and CYCLE's values: their own stream, after everything else */
+        morph_rules(org, st, end, amount);                 /* (WILD: no dead-filter, resonance, tone or loudness rule) */
+    morph_uf_safe(st, org, end, amount);                 /* (filter A, SMART and WILD: never a silent or dead combination) */
+    if (!(mrc & MC_WILD))
+        morph_uf_open(st, end);
+    morph_twin_roll(o, st, org, end, amount, seed, part);     /* the TWIN FILTER's, the sub's and CYCLE's values: their own stream, after everything else */
     if (!(mrc & MC_WILD))
         morph_twin_rules(org, st, end);
 }
 /* an end from the Original o itself (the roll of before ROLL CHAINED; the tests' and the re-makes' one) */
-static void morph_roll_full(const int8_t *o, int8_t *end, const engine_t *e, uint32_t amount, uint32_t seed, uint32_t part, uint32_t stereo)
+static void morph_roll_full(const int8_t *o, int8_t *end, uint32_t amount, uint32_t seed, uint32_t part, uint32_t stereo)
 {
-    morph_roll_step(o, o, end, e, amount, seed, part, stereo);
+    morph_roll_step(o, o, end, amount, seed, part, stereo);
 }
 /* the ids only (P_COUNT values in and out; the extension slots at their defaults): the roll of the values every store has had since before the slots, the one the tests of the old ids use */
-static void morph_roll_pure(const int8_t *o, int8_t *end, const engine_t *e, uint32_t amount, uint32_t seed,
+static void morph_roll_pure(const int8_t *o, int8_t *end, uint32_t amount, uint32_t seed,
                             uint32_t part, uint32_t stereo)
 {
     int8_t of[EXT_P_LEN], ef[EXT_P_LEN];
@@ -1258,7 +1102,7 @@ static void morph_roll_pure(const int8_t *o, int8_t *end, const engine_t *e, uin
     of[P_COUNT] = 0;
     for (k = 0; k < NX; k++)
         of[XW_BASE + k] = (int8_t)XTP[k].def;
-    morph_roll_full(of, ef, e, amount, seed, part, stereo);
+    morph_roll_full(of, ef, amount, seed, part, stereo);
     memcpy(end, ef, P_COUNT);
 }
 
@@ -1282,11 +1126,7 @@ typedef struct {
     uint8_t bstay;                                       /* .. End B's current entry was made by a stay at the B end (the edits since arriving go into it; a roll, UNDO or leaving 127 ends it) */
     uint8_t eng, preset, user;                           /* the sound base came from (t->eng_req, preset, user) */
     uint8_t nid;                                         /* the values the fader moves (ent): 0 = idle */
-    uint8_t fb[NFM];                                     /* FM6: the Original's patch bytes (fm_byte order) the ends belong to */
-    uint8_t fh[2][MORPH_HIST][NFM];                      /* .. each end's (parallel to h) */
-    uint8_t fsm[NFM];                                    /* .. the ramp's old end */
-    uint8_t fnid;                                        /* some FM6 patch byte differs: the hook (fm6_morph) blends */
-    uint16_t fser;                                       /* .. the list's serial (the hook's key) */
+    uint8_t fnid;                                        /* (DUELL: some FM6 patch byte differs) always 0 since 4.4a: no FM6 morph; kept because budget.c and voice.c read it */
     ment_t ent[MV_N];
     int8_t sm_old[P_COUNT];                              /* the ~50 ms ramp of an end replaced while heard: it was */
     int8_t smx_old[NX];                                  /* .. (its extension slots) */
@@ -1316,30 +1156,7 @@ static uint32_t morph_mx(uint32_t id)
     return id == P_LWAVE ? MX_LWAVE : id == P_L2WAVE ? MX_L2WAVE : id == P_FREED ? MX_SLOPE : id >= P_E0 ? MX_E0 + id - P_E0 : 0xFFu;
 }
 
-static int morph_isfm(const morph_part_t *mp) { return mp->eng == ENGI_FM6; }
-static uint32_t morph_fm_car(uint32_t pi, const int8_t *base)   /* the carriers of the part's algorithm (macro or patch) */
-{
-    uint32_t alg = base[P_E0] >= 1 && base[P_E0] <= 32 ? (uint32_t)base[P_E0] - 1u : fm6_patch[pi % NTRK][FP_ALG] & 31u;
-    return fm6_carriers(alg);
-}
-/* FM6 patch byte i (fm_byte order) as the fader sounds it: the ends blended as the t->p values are (Q8, rounded, the ramp) */
-static int32_t morph_fm_v(const morph_part_t *mp, uint32_t i, int32_t w, int ramp)
-{
-    const uint8_t *A = mp->fh[0][mp->top[0]], *B = mp->fh[1][mp->top[1]], *O = mp->fsm;
-    int32_t a8 = A[i] << 8, b8 = B[i] << 8, r = mp->sm_r;
-    uint32_t X = mp->sm_end;
-    if (ramp && r < 32768 && O[i] != (X ? B : A)[i]) {
-        int32_t x8 = (O[i] << 8) + ((((X ? B : A)[i] - O[i]) * 256 * r) >> 15);
-        if (X)
-            b8 = x8;
-        else
-            a8 = x8;
-    }
-    return (a8 + (((b8 - a8) * w) >> 15) + 128) >> 8;
-}
-static uint32_t morph_fm6(uint32_t tr, uint8_t *p);
 static int morph_stale(const track_t *t, const morph_part_t *mp);
-static void morph_fm_live(uint32_t pi, uint8_t *live);
 
 #if defined(FM1_IRQ_TARGET) || defined(HOST_IRQ_HOOK)    /* (HOST_IRQ_HOOK: tests/loadcost_test.c counts the windows) */
 #define MORPH_LOCK() fm1_irq_off()
@@ -1352,7 +1169,6 @@ static void morph_fm_live(uint32_t pi, uint8_t *live);
 /* the list of values the fader moves: those where an end (or the ramp's old end) differs from the Original */
 static void morph_build(morph_part_t *mp)
 {
-    const engine_t *e = ENGINES[eng_idx(mp->eng)];
     const int8_t *a = morph_cur(mp, 0), *b = morph_cur(mp, 1), *s = mp->sm_old;
     const int8_t *ax = morph_curx(mp, 0), *bx = morph_curx(mp, 1), *sx = mp->smx_old;   /* (the extension slots: the same by their slot number) */
     uint32_t ii, id, q, n = 0, ramp = mp->sm_r < 32768u;
@@ -1371,7 +1187,7 @@ static void morph_build(morph_part_t *mp)
         if (!diff)
             continue;
         diff = 0;
-        g = morph_tag(e, mp->base, id, 1);
+        g = morph_tag(mp->base, id, 1);
         w = g.kind == MK_SLOT ? 3u : 1u;
         if (g.kind == MK_EX || g.kind == MK_HARD ||     /* (a WILD end: a switch flips; a fade outside its values flips) */
             (g.kind == MK_FADE && (g.flags & MF_NFADE) &&
@@ -1380,8 +1196,6 @@ static void morph_build(morph_part_t *mp)
         if ((id == P_CUT2 && ax[X_LINK] != bx[X_LINK]) ||     /* the two meanings of CUTOFF 2 (OFFSET / CUTOFF) and of RES 2 (RES / FEEDBACK) do not blend: when the ends differ in LINK / in being COMB */
             (id == P_RES2 && (a[P_TWTYPE] == TT_COMB) != (b[P_TWTYPE] == TT_COMB)))   /* the value steps with the switch, at the middle of the fader */
             g.kind = MK_STEP;
-        if (e == &ENG_WAVE && id == P_E6 && A[ix] && B[ix] && (!ramp || S[ix]))
-            g.kind = MK_CONT;                           /* WAVE's STEPS between two counts: a blend (rounded); OFF against a count stays a flip at the middle (the count would pass through 2 places at the OFF end) */
         if (g.kind != MK_CONT && g.kind != MK_FADE && g.kind != MK_SLOT && g.kind != MK_STEP)
             continue;
         if (g.kind == MK_SLOT && (id - P_M1SRC) % 3u)
@@ -1395,22 +1209,13 @@ static void morph_build(morph_part_t *mp)
         q = g.kind == MK_SLOT ? id + 2u : id;           /* (a slot's amount is the value that can be set by hand) */
         mp->ent[n].kind = (uint8_t)(g.kind | ((g.flags & MF_STEREO) ? MK_STEREO : 0u) | ((pn[q >> 3] >> (q & 7u) & 1u) ? MK_PIN : 0u));
         mp->ent[n].mx = (uint8_t)morph_mx(id);
-        mp->ent[n].lo = (int8_t)morph_desc(e, id)->min;
-        mp->ent[n].hi = (int8_t)morph_desc(e, id)->max;
+        mp->ent[n].lo = (int8_t)morph_desc(id)->min;
+        mp->ent[n].hi = (int8_t)morph_desc(id)->max;
         n++;
     }
     mrc = sv;
     mp->nid = (uint8_t)n;
     mp->cvalid = 0;
-    mp->fnid = 0;
-    if (morph_isfm(mp)) {
-        for (id = 0; id < NFM; id++)
-            mp->fnid |= mp->fh[0][mp->top[0]][id] != mp->fb[id] || mp->fh[1][mp->top[1]][id] != mp->fb[id] ||
-                        (ramp && mp->fsm[id] != mp->fb[id]);
-        mp->fser++;
-        if (mp->fnid)
-            fm6_morph = morph_fm6;
-    }
 }
 
 /* end X's weight in the ramp's dip: the B weight w with X's share scaled by |1 - 2r| */
@@ -1529,25 +1334,6 @@ static void morph_apply(const morph_part_t *mp, int16_t *p, int32_t w, int ramp,
     }
 }
 
-/* eng_fm6.c fm6_sync (audio ISR): the key of part tr's FM6 blend (p null; 0 = none), or the blend into the patch copy p */
-static uint32_t morph_fm6(uint32_t tr, uint8_t *p)
-{
-    const morph_part_t *mp = tr < NSHOWN ? &mph[tr] : 0;
-    uint32_t i, key;
-    int32_t w;
-    if (!mp || !mp->fnid || !morph_isfm(mp) || morph_stale(&trk[tr], mp))
-        return 0;
-    key = 0x80000000u | (uint32_t)mp->fser << 16 | (mp->sm_r < 32768u ? (uint32_t)(mp->sm_r >> 7) + 1u : 0u) << 7 | mp->fader;
-    if (!p)
-        return key;
-    w = morph_wb(mp->fader);
-    for (i = 0; i < NFM; i++) {
-        uint32_t b = fm_byte(i);
-        p[b] = (uint8_t)clamp((int32_t)p[b] + morph_fm_v(mp, i, w, 1) - (int32_t)mp->fb[i], 0, 99);
-    }
-    return key;
-}
-
 /* ------------------------------------------------------------- the hook (audio ISR) --- */
 /* a part's window (MIXSPLIT job 2): its state is in track_t (mwon: the window is open, mwmp: its morph_part_t, mxw: the cross-fade), so morph_end finds it at a fixed
  * offset from t. The blend's work arrays are the part's own too (static: off the ISR's stack; used inside one morph_begin only) */
@@ -1572,7 +1358,7 @@ static int morph_begin(track_t *t, int adv)
         return 0;
     mp = &mph[pi];
     t->mf = mp->fader;                                  /* (4b) the matrix's MORPH source for this block (mod.c) */
-    if ((!mp->nid && !mp->fnid) || t->mwon || morph_stale(t, mp))
+    if (!mp->nid || t->mwon || morph_stale(t, mp))
         return 0;
     t->mwon = 1;
     t->mwpi = (uint8_t)pi;
@@ -1686,25 +1472,10 @@ static int morph_view_moved(uint32_t pi, uint32_t id)
 /* FM6 patch byte b (the fm6_patch index) of part pi as the fader sounds it (the stored byte where the morph leaves it) */
 static int32_t morph_view_fm(uint32_t pi, uint32_t b)
 {
-    const morph_part_t *mp = pi < NSHOWN ? &mph[pi] : 0;
-    uint32_t i;
-    int32_t s = fm6_patch[pi % NTRK][b];
-    if (!mp || !mp->n[0] || !mp->fnid || !morph_isfm(mp) || morph_stale(&trk[pi], mp))
-        return s;
-    for (i = 0; i < NFM; i++)
-        if (fm_byte(i) == b)
-            return clamp(s + morph_fm_v(mp, i, morph_wb(mp->fader), 1) - (int32_t)mp->fb[i], 0, 99);
-    return s;
+    return fm6_patch[pi % NTRK][b];                     /* (4.4a: no FM6 morph, the stored byte; the FM6 pages stay as they are) */
 }
 
 /* ------------------------------------------------------------- actions (main loop) --- */
-static void morph_fm_live(uint32_t pi, uint8_t *live)     /* part pi's FM6 patch bytes as stored */
-{
-    uint32_t i;
-    for (i = 0; i < NFM; i++)
-        live[i] = fm6_patch[pi % NTRK][fm_byte(i)];
-}
-
 static uint32_t morph_new_seed(void);
 static void morph_roll_cfg(uint32_t pi, uint32_t x, uint32_t seed, uint32_t amount, uint32_t cfg);
 static uint32_t morph_cfg_of(uint32_t pi) { return (morph.cfg & MC_SET) | MC_STEREO | (pi ? MC_PART : 0u); }
@@ -1732,10 +1503,7 @@ static void morph_rebase_part(uint32_t pi)               /* ends = the Original,
     for (id = 0; id < EXT_P_LEN; id++)
         mp->base[id] = (int8_t)clamp(t->p[id], -128, 127);
     mp->eng = t->eng_req;
-    if (morph_isfm(mp))
-        morph_fm_live(pi, mp->fb);
     for (e = 0; e < 2u; e++) {
-        memcpy(mp->fh[e][0], mp->fb, NFM);
         memcpy(mp->h[e][0], mp->base, P_COUNT);
         memcpy(mp->hx[e][0], mp->base + XW_BASE, NX);
         mp->xv[e] = 1;
@@ -1752,9 +1520,7 @@ static void morph_rebase_part(uint32_t pi)               /* ends = the Original,
     mp->user = t->user;
     mp->sm_r = 32768;
     mp->nid = 0;
-    mp->fnid = 0;
     mp->fader = 0;                                       /* a loaded sound always starts at A (SPEC 3.5) */
-    mp->fser++;
     MORPH_UNLOCK();
     if (morph_blk_ok(morph_ld)) {                        /* End B as saved with the patch: the same roll again */
         mp->amount = morph_ld[5] ? (uint8_t)(morph_ld[5] - 1u) : morph_ld[3];   /* the patch's own AMOUNT (the knob as saved; else the roll's) */
@@ -1847,16 +1613,6 @@ static void morph_fold(uint32_t pi)
     }
     for (id = 0; id < EXT_P_LEN; id++)
         mp->base[id] = (int8_t)clamp(trk[pi].p[id], -128, 127);
-    if (morph_isfm(mp)) {                                /* the FM6 patch bytes the same way */
-        uint8_t live[NFM];
-        morph_fm_live(pi, live);
-        for (e = 0; e < 2u; e++) {
-            uint8_t *c = mp->fh[e][mp->top[e]];
-            for (id = 0; id < NFM; id++)
-                c[id] = (uint8_t)clamp((int32_t)live[id] + c[id] - (int32_t)mp->fb[id], 0, 99);
-        }
-        memcpy(mp->fb, live, NFM);
-    }
     mp->sm_r = 32768;
     morph_build(mp);
 }
@@ -1871,23 +1627,19 @@ static void morph_ramp(morph_part_t *mp, uint32_t x)
     }
     memcpy(mp->sm_old, morph_cur(mp, x), P_COUNT);
     memcpy(mp->smx_old, morph_curx(mp, x), NX);
-    memcpy(mp->fsm, mp->fh[x][mp->top[x]], NFM);
     mp->sm_end = (uint8_t)x;
     mp->sm_r = 0;
 }
 
 /* ROLL end x (0 A, 1 B) of part pi: seed 1..65535, AMOUNT, cfg (MC_*: the settings the roll is made with, STEREO mode, the part
  * whose stream it is). The same Original, seed, AMOUNT and cfg give the same end (the FM6 bytes too) */
-/* ROLL CHAINED: from the start st / fst (EXT_P_LEN values, NFM FM6 bytes; the Original mp->base / mp->fb for a roll from the Original) */
-static void morph_end_pure(morph_part_t *mp, const int8_t *st, const uint8_t *fst, int8_t *end, uint8_t *fend, uint32_t pi, uint32_t seed, uint32_t amount, uint32_t cfg)
+/* ROLL CHAINED: from the start st (EXT_P_LEN values; the Original mp->base for a roll from the Original) */
+static void morph_end_pure(morph_part_t *mp, const int8_t *st, int8_t *end, uint32_t seed, uint32_t amount, uint32_t cfg)
 {
     uint32_t part = cfg & MC_PART ? 1u : 0u;
     uint8_t sv = mrc;
     mrc = (uint8_t)(cfg & (MC_SET | MC_STEREO));
-    morph_roll_step(mp->base, st, end, ENGINES[eng_idx(mp->eng)], amount, seed, part, (cfg & MC_STEREO) != 0u);
-    memcpy(fend, fst, NFM);
-    if (morph_isfm(mp))
-        morph_fm_roll(mp->fb, fst, morph_fm_car(pi, st), fend, amount, seed, part);
+    morph_roll_step(mp->base, st, end, amount, seed, part, (cfg & MC_STEREO) != 0u);
     mrc = sv;
 }
 static uint32_t pin_count(const uint8_t *pn);
@@ -1897,7 +1649,6 @@ static void morph_roll_from(uint32_t pi, uint32_t x, uint32_t seed, uint32_t amo
 {
     morph_part_t *mp;
     int8_t end[EXT_P_LEN], st[EXT_P_LEN];
-    uint8_t fend[NFM], fst[NFM];
     uint32_t k, dep = 0, ndep;
     if (pi >= NSHOWN)
         return;
@@ -1908,14 +1659,12 @@ static void morph_roll_from(uint32_t pi, uint32_t x, uint32_t seed, uint32_t amo
     morph_fold(pi);
     MORPH_UNLOCK();
     memcpy(st, mp->base, EXT_P_LEN);                     /* (the main loop is the only writer of the ends: read after the fold, unlocked) */
-    memcpy(fst, mp->fb, NFM);
     if (chain) {                                         /* the end as it sounds at its extreme (the fold put the edits in): the ids, the gap as the Original, the slots */
         memcpy(st, morph_cur(mp, x), P_COUNT);
         memcpy(st + XW_BASE, morph_curx(mp, x), NX);
-        memcpy(fst, mp->fh[x][mp->top[x]], NFM);
         dep = mp->rdep[x][mp->top[x]];
     }
-    morph_end_pure(mp, st, fst, end, fend, pi, seed, amount, cfg);
+    morph_end_pure(mp, st, end, seed, amount, cfg);
     ndep = dep < 255u ? dep + 1u : 255u;
     if (chain && !amount && !(x && pin_count(mp->pin[mp->top[1] % EDITB_PINH]))) {   /* a step of 0: the end stays what it is, so the new entry keeps what makes it (its seed, AMOUNT, bits and depth) */
         uint32_t t = mp->top[x];
@@ -1930,7 +1679,6 @@ static void morph_roll_from(uint32_t pi, uint32_t x, uint32_t seed, uint32_t amo
     memcpy(mp->h[x][k], end, P_COUNT);
     memcpy(mp->hx[x][k % XH], end + XW_BASE, NX);
     mp->xv[x] = (uint8_t)(mp->xv[x] < XH ? mp->xv[x] + 1u : XH);
-    memcpy(mp->fh[x][k], fend, NFM);
     mp->seed[x][k] = (uint16_t)seed;
     mp->rcfg[x][k] = (uint8_t)cfg;
     mp->ramt[x][k] = (uint8_t)amount;
@@ -1977,17 +1725,16 @@ static int8_t *morph_bval(morph_part_t *mp, uint32_t wid)   /* End B's current v
  * CYCLE SYNC, matrix SRC / DST, ..) is shared by both ends. FM6's operator bytes are not in this version (they are no ids; the FM6 patch is a separate array) */
 static int morph_editable(const morph_part_t *mp, uint32_t wid, int strict)
 {
-    const engine_t *e = ENGINES[eng_idx(mp->eng)];
     uint8_t sv = mrc;
     uint32_t k;
     mtag_t g;
     if (wid >= EXT_P_LEN || wid == P_COUNT || (wid > P_COUNT && wid < XW_BASE) || (wid >= XW_BASE + NX))
         return 0;
     if (wid == P_TWTYPE || wid == XW_BASE + X_ROUTE || wid == XW_BASE + X_LINK || wid == XW_BASE + X_SUBOCT || wid == XW_BASE + X_SUBWAVE ||
-        wid == XW_BASE + X_CYMODE || (e == &ENG_WAVE && wid == P_E6))
+        wid == XW_BASE + X_CYMODE)
         return 1;
     mrc = (uint8_t)(MC_LIST | (strict ? morph.cfg & (MC_ARP | MC_PIT) : MC_ARP | MC_PIT));
-    g = morph_tag(e, mp->base, wid, 1u);
+    g = morph_tag(mp->base, wid, 1u);
     mrc = sv;
     k = g.kind;
     if (g.flags & MF_GONE)
@@ -2002,7 +1749,7 @@ static int morph_editable(const morph_part_t *mp, uint32_t wid, int strict)
 static uint32_t morph_b_mode(uint32_t pi, uint32_t wid)
 {
     const morph_part_t *mp = pi < NSHOWN ? &mph[pi] : 0;
-    if (!mp || !mp->n[0] || mp->fader != 127u || (!mp->nid && !mp->fnid) || morph_stale(&trk[pi], mp) || wid >= EXT_P_LEN || wid == P_COUNT)
+    if (!mp || !mp->n[0] || mp->fader != 127u || !mp->nid || morph_stale(&trk[pi], mp) || wid >= EXT_P_LEN || wid == P_COUNT)
         return 0;
     return morph_editable(mp, wid, 1) ? 1u : 2u;
 }
@@ -2022,7 +1769,6 @@ static void morph_b_stay(morph_part_t *mp)
     memcpy(mp->h[1][k], mp->h[1][t], P_COUNT);
     if (k % XH != t % XH)                                /* (the device's libc has no memmove; the two rows are the same row only at XH 1) */
         memcpy(mp->hx[1][k % XH], mp->hx[1][t % XH], NX);
-    memcpy(mp->fh[1][k], mp->fh[1][t], NFM);
     mp->seed[1][k] = mp->seed[1][t];
     mp->rcfg[1][k] = mp->rcfg[1][t];
     mp->ramt[1][k] = mp->ramt[1][t];
@@ -2039,7 +1785,7 @@ static void morph_b_stay(morph_part_t *mp)
 static int morph_b_set(uint32_t pi, uint32_t wid, int32_t v)
 {
     morph_part_t *mp = &mph[pi];
-    const param_desc_t *d = morph_desc(ENGINES[eng_idx(mp->eng)], wid);
+    const param_desc_t *d = morph_desc(wid);
     if (!pin_get(morph_pins(mp), wid) && pin_count(morph_pins(mp)) >= XB_MAX)
         return 1;
     MORPH_LOCK();
@@ -2062,7 +1808,7 @@ static void morph_pin_load(morph_part_t *mp, const xb_edit_t *ed, uint32_t ne)
         const param_desc_t *d;
         if (!morph_editable(mp, wid, 0) || pin_get(pn, wid))
             continue;
-        d = morph_desc(ENGINES[eng_idx(mp->eng)], wid);
+        d = morph_desc(wid);
         *morph_bval(mp, wid) = (int8_t)clamp(ed[i].val, d->min, d->max);
         pn[wid >> 3] |= (uint8_t)(1u << (wid & 7u));
         n++;
@@ -2136,7 +1882,6 @@ static int morph_blk_make(uint32_t pi, uint8_t *b)
     morph_part_t *mp = morph_ready(pi);
     uint32_t seed = mp->seed[1][mp->top[1]], cfg = mp->rcfg[1][mp->top[1]], amt = mp->ramt[1][mp->top[1]], dep = mp->rdep[1][mp->top[1]];
     int8_t end[EXT_P_LEN];
-    uint8_t fend[NFM];
     if (!seed)
         return 0;
     if (dep <= 1u) {   /* ROLL CHAINED: only an End B of one roll from the Original is what its seed makes again; a chain (2 rolls or more) is written as its last roll and NOT
@@ -2144,7 +1889,7 @@ static int morph_blk_make(uint32_t pi, uint8_t *b)
         MORPH_LOCK();
         morph_fold(pi);
         MORPH_UNLOCK();
-        morph_end_pure(mp, mp->base, mp->fb, end, fend, pi, seed, amt, cfg);
+        morph_end_pure(mp, mp->base, end, seed, amt, cfg);
         {   /* EDITABLE B: the roll again from the Original as it is, the values set by hand put back on top (a save keeps them; the rolled rest follows the Original) */
             uint8_t pn[PIN_BYTES];
             uint32_t wid, any = 0;
@@ -2154,7 +1899,7 @@ static int morph_blk_make(uint32_t pi, uint8_t *b)
                     end[wid] = *morph_bval(mp, wid);
                     any = 1;
                 }
-            if (memcmp(end, morph_cur(mp, 1), P_COUNT) || memcmp(end + XW_BASE, morph_curx(mp, 1), NX) || (morph_isfm(mp) && memcmp(fend, mp->fh[1][mp->top[1]], NFM))) {
+            if (memcmp(end, morph_cur(mp, 1), P_COUNT) || memcmp(end + XW_BASE, morph_curx(mp, 1), NX)) {
                 morph_roll_cfg(pi, 1u, seed, amt, cfg);
                 if (any) {
                     MORPH_LOCK();
@@ -2445,8 +2190,6 @@ static int morph_unpack(const uint8_t *b, uint32_t n)
             mp->seed[e][0] = (uint16_t)(q[2u + 2u * e] | q[3u + 2u * e] << 8);
             mp->rdep[e][0] = q[6u + e] ? q[6u + e] : mp->seed[e][0] ? 1u : 0u;   /* (a block of before: 0, one roll) */
             memcpy(mp->h[e][0], q + 8u + e * P_COUNT, P_COUNT);
-            if (morph_isfm(mp) && mp->seed[e][0])        /* (the FM6 bytes are not stored: the seed regenerates them, from the Original: exact for one roll; a chain's are its last roll's: ROLL_CHAIN_CHANGE.md) */
-                morph_fm_roll(mp->fb, mp->fb, morph_fm_car(pi, mp->base), mp->fh[e][0], mp->amount, mp->seed[e][0], pi);
         }
         morph_build(mp);
         MORPH_UNLOCK();

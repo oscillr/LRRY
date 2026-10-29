@@ -99,6 +99,11 @@ XGROUP = {"ROUTE": "TWIN", "LINK": "TWIN", "KTRK2": "TWIN", "ENV2": "TWIN", "LFO
           "CYCUT2": "CYCLE", "CYPAN": "CYCLE", "CYPIT": "CYCLE", "L2RES2": "LFO2", "L2FMODE": "LFO2", "L2BLD": "LFO2",
           "LFO1LVL": "LFO1", "LFO2LVL": "LFO2",
           "STRUM": "CHORD"}       # (item 144: X27, the CHORD page's STRUM; no factory sound sets it)
+# L/RRY phase 4.3a: X28..X63, the stereo voice's slots (no factory sound sets them yet; the groups only name them)
+XGROUP.update({f"O{o}{n}": f"OSC{o}" for o in (1, 2) for n in ("MODEL", "COARSE", "FINE", "LVL", "PAN", "BAL", "P1", "P2", "P3")})
+XGROUP.update({"NZLVL": "NOISE", "NZPAN": "NOISE", "NZBAL": "NOISE", "RGLVL": "RING", "RGPAN": "RING", "RGBAL": "RING",
+               "FAPAN": "FILTERA", "FBPAN": "FILTERB", "DATYPE": "DIRTA", "DAPAN": "DIRTA", "DALVL": "DIRTA",
+               "DBTYPE": "DIRTB", "DBDRV": "DIRTB", "DBPAN": "DIRTB", "DBLVL": "DIRTB", "DSER": "DIRT", "MID": "OUTPUT", "SIDE": "OUTPUT"})
 
 
 def parse_xtp(names):
