@@ -65,103 +65,16 @@ def note(s):
 # Order (0.2.24): 1-4 bass grooves and splits, 5-8 pads, layers and the dry pair, 9-12 the four multis of 0.2.1 as made (the owner's),
 # 13-15 for performing (0.2.25: 13 is the owner's original COLD CHAPEL, in the slot of BASILDON, the multi least different from the rest), 16 the stress test.
 SEND = ("P_CHOR", "P_DLY", "P_REV")
+# L/RRY (owner, 2026-10-30): DUELL's sixteen factory multis are dropped with DUELL's factory sounds (each named two of them; L/RRY plays one part). The M*.bin
+# records are gone too. No factory multi until L/RRY has its own: duell_multis.h holds DF_N 0 (tools/gen_duell_multis.py)
 MULTIS = [
-    # ---- 1-4: bass grooves and splits ----
-    dict(slot=1, name="REESE SWAMP", kept=True, mode="LAYER", parts=[dict(sound="REESE BASS"), dict(sound="SQUELCH")],
-         what="Reese bass wobbling at 1/4 under a 1/16 acid loop (0.2.11, M01 since 0.2.13: the first start's multi)"),
-    dict(slot=2, name="NIGHT ORGAN", mode="LAYER", split="F4",
-         g=dict(G_BPM=121, G_SWING=17, G_DTIME="8D", G_DFDBK=31, G_DMIX=90, G_RTYPE="ROOM", G_RSIZE=71, G_DMODE="DIGI"),
-         parts=[dict(sound="PEDAL BASS", set=dict(P_AMODE="SEQ", P_ARATE="1/8", P_AGATE=80, P_AHOLD="OFF", P_TRANS=-12, P_VOICE="LEG", P_LEVEL=112),
-                     steps=". 0 . 0 . 0 . +12"),
-                dict(sound="DRAWBARS", set=dict(P_AMODE="SEQ", P_ARATE="1/8", P_AGATE=100, P_AHOLD="OFF", P_CHRD="MIN7", P_VOIC="CLOSE",
-                                                 P_DLY=17, P_REV=21, P_DKSRC="PUMP", P_DKRATE="1/4", P_DKDEP=21, P_LEVEL=104),
-                     steps=". 0 . . . 0A . .")]),
-    # M03 (0.2.24, owner: the pad sounded dark): the pad's own CUT opened in the multi from the sound's 55 (about 460 Hz) to 71 (about 1 kHz);
-    # measured on the pad alone, keys E4 / A4 / C5: spectral centroid 528 / 652 / 760 Hz -> 653 / 808 / 925 Hz, the 2-4 kHz band +3 dB, 4-8 kHz
-    # +6 dB, level the same within 0.4 dB. #44 EMBER GLOW itself is unchanged (the override lives in this record only). End B rolled again
-    # (seed 23709 at 27 %): the sound's own End B (seed 44167) closed the pad in this multi (its roll took AMP ENV -> FLT to -26: the pad alone
-    # -14.2 dB at End B on C4 E4 G4, `gen_factory_multis eval 3`), against the promise "MORPH opens the pad"; the new seed keeps the level
-    # (+0.2 dB) and is brighter (739 -> 1117 Hz, `search 3 2 27 40`).
-    dict(slot=3, name="PAD SPLIT", mode="LAYER", split="F4",
-         g=dict(G_BPM=97, G_DTIME="4D", G_DFDBK=37, G_DMIX=71, G_RTYPE="HALL", G_RSIZE=97, G_RDAMP=61, G_DMODE="DIGI"),
-         parts=[dict(sound="PLUCK BASS", set=dict(P_TRANS=-12, P_VOICE="LEG", P_LEVEL=112)),
-                dict(sound="EMBER GLOW", set={"E:CUT": 71, "P_DLY": 17, "P_REV": 57, "P_M8SRC": "MORPH", "P_M8DST": "CUT", "P_M8AMT": 21, "P_LEVEL": 101},
-                     bseed=23709, amt=27)]),
-    dict(slot=4, name="DUB CHORD", mode="LAYER",
-         g=dict(G_BPM=117, G_DTIME="8D", G_DFDBK=71, G_DCOLOR=47, G_DMIX=97, G_DMODE="DIGI", G_DMDEP=17, G_RTYPE="SPRING", G_RSIZE=77, G_RDAMP=71),
-         parts=[dict(sound="BIG STAB", set=dict(P_AMODE="SEQ", P_ARATE="1/16", P_AGATE=37, P_AHOLD="OFF", P_CHRD="MIN7", P_VOIC="CLOSE",
-                                                 P_FREEA="u_uf(1700)", P_FREEB=17, P_DLY=77, P_REV=37, P_CHOR=0,
-                                                 P_DKSRC="PUMP", P_DKRATE="1/4", P_DKDEP=37, P_LEVEL=109),
-                     steps=". . 0 . . . . . . . 0 . . . . ."),
-                dict(sound="TIDAL SUB", set=dict(P_AMODE="SEQ", P_ARATE="1/16", P_AGATE=120, P_AHOLD="OFF", P_VOICE="LEG", P_LEVEL=117),
-                     steps="-24A . . . . . . . -24 . . -24 . . -19 .")]),
-    # ---- 5-8: pads and layers (0.2.25: the dry pair MONO DUEL is spare) ----
-    dict(slot=5, name="WHISPER TIDE", kept=True, mode="LAYER", parts=[dict(sound="DIGITAL PAD"), dict(sound="WHISPER PAD")]),
-    # slot 6: the owner's TINE STRINGS (0.2.25), from tools/owner_multis.py; his COLD CHAPEL, which was here until 0.2.24, is M13 since 0.2.25
-    # slot 7: the owner's refined FINAL REEL (0.2.25), from tools/owner_multis.py (his file duell-multi-M07-FINAL_REEL.duell-multis.json); the old kept record was the 0.2.11 one
-    # slot 8: the owner's HAZY TENSOR (0.2.25), from tools/owner_multis.py (his file duell-multi-M08-HAZY_TENSOR.duell-multis.json); MONO DUEL, which was here, is spare (below)
-    # ---- 9-12: the four multis of 0.2.1, kept as made (the owner's) ----
-    dict(slot=9, name="ACID ETHER", kept=True, owner=True, mode="LAYER", parts=[dict(sound="RUBBER BAND"), dict(sound="LADDER BASS")],
-         what="an acid line over a Moog-style bass, the chorus wobbling it (the owner's, 0.2.1: M04, M06 in 0.2.13 .. 0.2.22; back in 0.2.24)"),
-    dict(slot=10, name="WIRED SNAIL", kept=True, mode="LAYER", parts=[dict(sound="SFORZANDO"), dict(sound="GLASS SHARDS")],
-         what="brass stab in unison two octaves down under a three-octave glass arp (kept as made in 0.2.1)"),
-    dict(slot=11, name="EERIE SIGNAL", kept=True, mode="LAYER", parts=[dict(sound="VESPERS"), dict(sound="JAZZ CLUB")],
-         what="choir in diatonic triads, an organ picking notes at random at 1/8 (kept as made in 0.2.1)"),
-    dict(slot=12, name="DEAD BUFFER", kept=True, owner=True, mode="LAYER", parts=[dict(sound="FROZEN AIR"), dict(sound="MODEM")],
-         what="frozen wavetable texture under a modem-noise arp (kept as made in 0.2.1, with the owner's own edits)"),
-    # ---- 13-15: performance (one tribute, the owner's fast acid groove, a percussive pair) ----
-    dict(slot=13, name="COLD CHAPEL", kept=True, owner=True, mode="LAYER", parts=[dict(sound="EVOLVING PAD"), dict(sound="SINGING BOWL")],
-         what="evolving pad latched, a singing bowl walking up the chord a half note each, ping-pong delay in a large hall (the owner's original, 0.2.11 .. 0.2.22: M07; M06 in 0.2.24; M13 since 0.2.25, byte for byte)"),
-    dict(slot=14, name="GARGLE ACID", kept=True, owner=True, mode="LAYER", parts=[dict(sound="GROWL BASS"), dict(sound="SQUELCH")],
-         what="a growl bass two octaves down holding the key, a 16-step acid riff on it at 127 BPM (the owner's, 0.2.11 .. 0.2.22: M08; back in 0.2.24)"),
-    # slot 15: the owner's WOOD & SKIN (0.2.31), from tools/owner_multis.py (his file duell-multi-M15-WOOD_SKIN.duell-multis.json, record v7, 487 B, crc32 975420133); the 0.2.23 record built here differed in one byte (index 52)
-    # ---- 16: the STRESS TEST (owner, 0.2.23: how many notes the unit takes; a test, free to overwrite) ----
-    dict(slot=16, name="STRESS TEST", mode="LAYER", stress=True,
-         what="CPU stress test, not music: the two dearest sounds, every stage on (24 dB multimode filters, FLANGER insert + SAT on the whistle, EQ + ducker on the pad, chorus, RANDOM delay, SHIM BOTH), "
-              "a 1/16 arp pad with a short gate and release (0.2.24: calibrated so one key plays on the unit: host model 1 key ~62 %, 2 keys ~78 %, 3 keys ~95 %)",
-         g=dict(G_BPM=137, G_DTIME="1/8", G_DFDBK=61, G_DMIX=90, G_DMODE="RAND", G_DMDEP=71, G_DMRATE=44, G_CDEPTH=77, G_CRATE=41,
-                G_RTYPE="SHIM", G_RSIZE=107, G_RDAMP=51, G_SHPITCH="BOTH", G_SHMOD=51),
-         parts=[dict(sound="PAN WHISTLE", set=dict(P_VOICE="POLY", P_FREEA="u_uf(61)", P_FREEB=17, P_FREEC=127, P_FREED=2, P_ITYPE="FLANGER", P_IMIX=97, P_DIST=41,
-                                                    P_CHOR=71, P_DLY=61, P_REV=71, P_LEVEL=112)),
-                dict(sound="DIGITAL PAD", set=dict(P_VOICE="POLY", P_FREEA="u_uf(61)", P_FREEB=17, P_FREEC=127, P_FREED=2, P_AMODE="UP", P_ARATE="1/16", P_AOCT=2, P_AGATE=71, P_AHOLD="OFF",
-                                                    P_REL=47, P_EQLG=4, P_EQMG=-3, P_EQHG=3,
-                                                    P_DKSRC="PUMP", P_DKRATE="1/4", P_DKDEP=41, P_CHOR=71, P_DLY=61, P_REV=71, P_LEVEL=112))]),
 ]
 
 # ---- spare multis (0.2.24): made for 0.2.23, out of the sixteen so the owner's COLD CHAPEL, ACID ETHER and GARGLE ACID could come back.
 # Chosen by the similarity check's own measure against the restored and kept ones: VELVET TINES and SEVENOAKS are both a PAD + KEYS layer
 # like the owner's EERIE SIGNAL (VESPERS + JAZZ CLUB), and the 0.2.23 drone shared SINGING BOWL with his COLD CHAPEL and took its name
 # (renamed here). The 0.2.23 TINE STRINGS is VELVET TINES here since 0.2.25: the owner's M06 has that name (its record still says TINE STRINGS). Their records of 0.2.23 are tests/scenes/spare/ (rendered and hashed by tests/multi_render_test.c). Not built.
-SPARE = [
-    dict(name="VELVET TINES", scene="spare/M06_TINE_STRINGS", mode="LAYER", xf=37,
-         what="electric piano over a string pad: harder notes bring the tines forward (XFADE), MORPH opens the strings (M06 in 0.2.23)",
-         g=dict(G_BPM=77, G_DTIME="4D", G_DFDBK=27, G_DMIX=71, G_DMODE="DIGI", G_RTYPE="PLATE", G_RSIZE=77, G_RDAMP=61),
-         parts=[dict(sound="VELVET BOW", set=dict(P_REV=47, P_M8SRC="MORPH", P_M8DST="CUT", P_M8AMT=21, P_LEVEL=101), bseed=25230, amt=27),
-                dict(sound="TINE ROOM", set=dict(P_DLY=11, P_REV=31, P_LEVEL=112), amt=27)]),
-    dict(name="BOWL & WIND", scene="spare/M07_BOWL_AND_WIND", mode="LAYER",
-         what="cinematic drone: a bowed singing bowl an octave down over cold moor wind, both latched; MORPH opens them (M07 in 0.2.23, named COLD CHAPEL then: the record still says so)",
-         g=dict(G_BPM=71, G_DTIME="4D", G_DFDBK=71, G_DMIX=97, G_RTYPE="HALL", G_RSIZE=117, G_RDAMP=57, G_DMODE="PING", G_DMDEP=17),
-         parts=[dict(sound="SINGING BOWL", set=dict(P_AHOLD="ALL", P_TRANS=-12, P_REV=87, P_DLY=27, P_M8SRC="MORPH", P_M8DST="E3", P_M8AMT=17, P_LEVEL=95),
-                     bseed=7869, amt=27),
-                dict(sound="MOOR WIND", set=dict(P_AHOLD="ALL", P_REV=71, P_DLY=17, P_M8SRC="MORPH", P_M8DST="CUT", P_M8AMT=11, P_LEVEL=97), amt=27)]),
-    dict(name="SEVENOAKS", scene="spare/M14_SEVENOAKS", mode="LAYER", tribute=True,
-         what="tribute to Kent's rave-era duo: a 1/16 FM bell arpeggio over two octaves above a phase-distortion string pad (M14 in 0.2.23)",
-         g=dict(G_BPM=127, G_DTIME="8D", G_DFDBK=41, G_DMIX=90, G_DMODE="PING", G_RTYPE="HALL", G_RSIZE=97, G_RDAMP=61),
-         parts=[dict(sound="LAMPLIGHT", set=dict(P_CHRD="OFF", P_REV=57, P_M8SRC="MORPH", P_M8DST="SHP", P_M8AMT=17, P_LEVEL=90)),
-                dict(sound="FROST BELLS", set=dict(P_AMODE="UP", P_ARATE="1/16", P_AOCT=2, P_AGATE=71, P_AHOLD="OFF", P_DLY=37, P_REV=47, P_LEVEL=93))]),
-    dict(name="BASILDON", scene="spare/M13_BASILDON", mode="LAYER", tribute=True,
-         what="tribute to Essex synth-pop: an 8th-note FM bass sequence under a ring-modulated metal riff, 80s plate (M13 in 0.2.23 .. 0.2.25)",
-         g=dict(G_BPM=117, G_DTIME="8D", G_DFDBK=31, G_DMIX=77, G_DMODE="PING", G_RTYPE="PLATE", G_RSIZE=71, G_RDAMP=57),
-         parts=[dict(sound="FM BASS 2", set=dict(P_AMODE="SEQ", P_ARATE="1/8", P_AGATE=71, P_AHOLD="OFF", P_TRANS=-12, P_LEVEL=109),
-                     steps="0A 0 0 0 0 0 0 +7"),
-                dict(sound="TIN TOLL", set=dict(P_AMODE="SEQ", P_ARATE="1/16", P_AGATE=57, P_AHOLD="OFF", P_DLY=31, P_REV=41, P_LEVEL=101),
-                     steps="+12A . +19 +12 . +22 +19 . +12A . +15 +17 . +19 . +10")]),
-    dict(name="MONO DUEL", scene="spare/M08_MONO_DUEL", mode="DUEL",
-         what="two dry mono voices for outboard effects: a chip-Moog bass hard left, a square lead with glide hard right (M08 in 0.2.23 .. 0.2.25; the owner: Mono-dual is out; the only factory multi in DUEL)",
-         g=dict(G_BPM=117, G_DTIME="1/8", G_DFDBK=31, G_DMIX=77, G_DMODE="DIGI", G_RTYPE="ROOM", G_RSIZE=51),
-         parts=[dict(sound="BREADBIN", set=dict(P_VOICE="LEG", P_TRANS=-12, P_CHOR=0, P_DLY=0, P_REV=0, P_DKDEP=0, P_LEVEL=117)),
-                dict(sound="SQUARE LEAD", set=dict(P_VOICE="LEG", P_CHOR=0, P_DLY=0, P_REV=0, P_LEVEL=117))]),
-]
+SPARE = []   # (L/RRY: DUELL's spare multis named DUELL sounds: dropped with them)
 
 
 def apply_owner(multis):
@@ -182,7 +95,7 @@ def apply_owner(multis):
     return sorted(out, key=lambda m: m["slot"])
 
 
-MULTIS = apply_owner(MULTIS)
+MULTIS = []   # (L/RRY: the owner's DUELL multis of tools/owner_multis.py name DUELL sounds: not applied)
 
 
 # ---- the firmware's names --------------------------------------------------------------------------------------------------------

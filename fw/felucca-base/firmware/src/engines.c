@@ -277,9 +277,9 @@ static const struct {
 #define NPATTERNS (sizeof PATTERNS / sizeof PATTERNS[0])
 
 /* the parts at power-on (engine, preset, PATTERNS[n - 1] in the sequencer, 0 = empty: all are): bass, pad (lead and drums: the hidden parts 3 and 4, gone, memory trim 1).
- * DUELL: the preset is the engine's factory sound k (sounds.c; ANALOG 4 = SQUELCH), INIT for an engine with none yet
+ * DUELL: the preset is the engine's factory sound k (sounds.c; L/RRY: engine 0's sound 0, TEST SAW), INIT for an engine with none yet
  * (FM6 until its sounds come); the host renders (tests/hostsim.c host_preset) still read Felucca's presets with it */
-static const uint8_t TRK_DEF[NPART][3] = {{0, 4, 0}, {ENGI_FM6, 4, 0}   /* ANALOG ACID, FM6 PAD (was DIGITAL PAD) */
+static const uint8_t TRK_DEF[NPART][3] = {{0, 0, 0}, {ENGI_FM6, 4, 0}   /* L/RRY (2026-10-30): factory sound 0, TEST SAW (tools/duell_sounds.py); (the second entry: DUELL's part 2, unused with one part) */
 #if NPART > 2
                                           , {3, 0, 0}, {0, 0, 0}                /* (the host rig with four parts: LOFI PULSE LD, ANALOG) */
 #endif

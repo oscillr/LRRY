@@ -7,7 +7,7 @@
 #define BENCH_MODEL_SIG 0x43864B7Du
 #define BENCH_MODEL_NA 88u
 #define BENCH_MODEL_SIGA 0x43D5691Bu
-static const uint8_t BENCH_DEAR[NENGINES] BENCH_RO = {15, 0, 3, 2, 0, 2, 2, 5, 0, 0, 0, 2, 1, 0, 0};
+static const uint8_t BENCH_DEAR[NENGINES] BENCH_RO = {7, 0, 3, 2, 0, 2, 2, 5, 0, 0, 0, 2, 1, 0, 0};   /* (L/RRY 2026-10-30: engine 0's dearest factory sound is 7, CPU STRESS; the others have no factory sound now) */
 static const uint16_t BENCH_MODEL_AVG[89] BENCH_RO = {
     139, /* IDLE ST */
     139, /* IDLE LAYER */

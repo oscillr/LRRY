@@ -98,7 +98,7 @@ Run from `fw/felucca-base`, the flags of `fw/onepart.sh`:
 ../onepart.sh 1 1 lrry_morph lrry_fw
 ```
 
-The build headers need the generators first (`python3 ../gen_only.py`, then the font with `--preset barlow` as `tools/build.py` does, and the `build/gen_test` headers as `fw/host_tests.sh` makes them). One more thing: `tools/gen_duell_sounds.py` still stops on factory sound 37 (HORNET: FREEC 11 out of range 0..3, because 4.3a made MODE a choice). I generated `duell_sounds.h` with a scratch copy that clamps. Open choice 6.
+The build headers need the generators first (`python3 ../gen_only.py`, then the font with `--preset barlow` as `tools/build.py` does, and the `build/gen_test` headers as `fw/host_tests.sh` makes them). (Until 2026-10-30 `tools/gen_duell_sounds.py` stopped on DUELL's factory sound HORNET. DUELL's sounds are gone now, see "Test sounds": every generator runs unmodified.)
 
 `tests/lrry_morph_test.c`: **16 checks, 2 FAIL**. Run time about 2.5 minutes.
 1. Tags: all 36 new slots tagged, the gates work, P_E0..P_E7 never roll. 3 ok.
@@ -119,6 +119,31 @@ The overflow, in detail: `fx.c` lines 2738 and 2739, `ac->l[i] = (xl * gli) >> 1
 UBSan (`-fsanitize=signed-integer-overflow,integer-divide-by-zero,shift-exponent`) on both tests, final tree: the only runtime errors are `fx.c:2738` and `fx.c:2739` above. Nothing in morph.c, the voice or the decode. There is no float in the firmware path, so no NaN is possible.
 
 Compile checks (host, syntax and object): a build of `tests/editor_test.c` (hostsim, UI core, editor, stores) and of the UI include block of `tests/ui_test.c` (all `ui_*.c`, `ui_graph.c`, upreset, project, storage) both compile. `bench.c` cannot build on the host, but it gives exactly the same device-only errors as before my change, and no new ones. DUELL's own tests of removed code no longer compile: `morph_test`, `phys_test`, `wave_test` (open choice 7). They were not run.
+
+## Test sounds (2026-10-30)
+
+DUELL's 128 factory sounds and its 16 factory multis are dropped (owner). In their place, 8 test sounds for the unit, not the L/RRY bank. All sit on engine 0 (L/RRY has one source, the engine number is only the sound's identity).
+
+| # | Name | Category | What it tests | Notes (budget, one core) |
+|---|---|---|---|---|
+| 0 | TEST SAW | OTHER | the power-on sound: one saw, filters off, the cheapest voice | 6 |
+| 1 | WIDE PAD | PAD | SUPER 7 saws spread, a second saw an octave up, filter A LP opened by ENV 2, LFO 1 on FILTER A PAN, SIDE up | 2 |
+| 2 | ACID BASS | BASS | legato and glide, filter A 24 dB with high RES and an ENV 2 sweep, DIRT A SOFT, VEL to CUT | 2 |
+| 3 | FM BELL | KEYS | OSC 1 FM, a sine an octave up panned right, a decaying envelope | 4 |
+| 4 | SYNC LEAD | LEAD | OSC 1 SYNC right, OSC 2 PULSE left, filter B BP in PARAL with DIRT B FUZZ, a delayed vibrato | 2 |
+| 5 | COMB PLUCK | PLUCK | a triangle and noise into filter B COMB tuned to the note: the COMB lines in the part memory | 4 |
+| 6 | STEREO TEST | OTHER | a saw hard left, a pulse a fifth up hard right: each speaker on its own | 4 |
+| 7 | CPU STRESS | OTHER | every source, filter A BP 24 dB, filter B LADDER, both dirt units in series: the bench's dearest sound (`bench_model.h` BENCH_DEAR) | 1 |
+
+`tests/lrry_sounds_test.c`: **6 checks, 0 FAIL**. Each sound loaded as the UI loads it (with its MORPH End B), a held C3 and an 8-note chord at velocity 127, fader at A and at B:
+- every sound is heard, the master output stays inside +-32767 (peak 22031 at most).
+- no wrap in the part mix: the factor of `fx.c`'s product reached 199727, 38 % of 2^19. The budget caps the notes on one core (1 to 6), so the chord is capped too: with the dual-core split more notes sound and this margin shrinks.
+- loudness (the loudest 0.1 s of a held C3): every sound within 3.1 dB of TEST SAW, levelled with TRIM.
+- STEREO TEST: both channels sound, L/R correlation 0.04.
+
+Found while levelling: the COMB's output sits about 9 dB under its dry source (feedback +0.79), so COMB PLUCK needs TRIM 121. A note for the voice's tuning, not changed.
+
+Changed files: `tools/duell_sounds.py` (the 8 sounds), `tools/factory_multis.py` (no multis, no spares), `tools/gen_duell_multis.py` (DF_N 0 with one unused array entry, no zero-length array for the device's compiler), `tools/factory_multis/M01..M16.bin` deleted, `firmware/src/engines.c` (power-on sound 0, TEST SAW), `firmware/src/bench_model.h` (BENCH_DEAR of engine 0: 7). Flash: the factory sounds 13062 B to 553 B, the factory multis 7643 B to 1 B (the generators' counts), about 20 KB more saved on top of the figures below.
 
 ## Flash and RAM saved
 
@@ -163,7 +188,7 @@ The part's engine memory (`eng_mem`, 12888 B a part) stays: the L/RRY COMB lines
 3. **FOLD amount (FOLD's P1).** DUELL has no wavefolder, so no sibling rule. Now: never rolled. Options: (a) keep. (b) as DRIVE: smooth, at most 32 above the Original. (c) smooth like a timbre value.
 4. **Project MORPH block and the slots.** (a) keep DUELL's format (slots at the Original after a project load). (b) store the 64 slots of both ends (the project format grows by 128 bytes a part).
 5. **WILD and the new slots.** DUELL's WILD flips every switch, including DIRT TYPE (OFF to FUZZ), OSC MODEL and VOICE MODE. Options: keep, or hold some of them in WILD too (MF_NEVER).
-6. **Factory sounds and FILTER A MODE.** `tools/gen_duell_sounds.py` stops on HORNET (FREEC 11, a blend value, now out of range 0..3). Options: (a) map the old blend to the nearest mode in the factory list, (b) drop the DUELL factory sounds (L/RRY sounds come later), (c) clamp in the generator.
+6. **Factory sounds.** Decided (owner, 2026-10-30): DUELL's sounds are dropped. Done, with DUELL's factory multis, see "Test sounds". Still open: the real L/RRY bank, and whether L/RRY gets factory multis.
 7. **DUELL tests of removed code** (`morph_test`, `phys_test`, `wave_test`, and others of the old suite). Options: delete them, or keep them out of the run list.
 8. **The old voice chain** (`voice_chain.c`, `chain_f2.c` DSP, `chain_sub.c`, `uf_run`). Options: remove its DSP in a next step (keep the UI helpers), or leave.
 9. **Gates.** I hold the BALs and FILTER B PAN while filter B is OFF, and a DIRT unit's DRIVE, PAN, LEVEL while it is OFF (SMART), as DUELL holds TWIN and INSERT values. Options: keep, or roll them always.
