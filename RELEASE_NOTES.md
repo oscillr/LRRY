@@ -6,6 +6,8 @@ The first public beta of L/RRY, a new synth for the M-VAVE FM-1.
 **Best with headphones:** L/RRY lives in stereo.  
 **Install:** <https://oscillr.github.io/LRRY/install/> (Chrome or Edge, USB, back up first)
 
+> **A personal note.** L/RRY started before the FM-1 got popular, as my own synth on a Teensy. I designed it for myself, not modeled on any other synth I know, and then ported it to the FM-1. Now I'm happy to share it with the community.
+
 ## What it is
 - **A stereo voice.** Two oscillators with eight models each, a sub, noise and ring modulation, two filters and two dirt stages, and every one of them has its own pan.
 - **Two filters.** The MULTI FILTER (LP, BP, HP, NOTCH) and the TWIN FILTER (LP, BP, HP, NOTCH, LADDER, COMB), in SERIES or PARALLEL, each source with its own balance between them.

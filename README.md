@@ -9,6 +9,8 @@
 
 **Best with headphones:** L/RRY lives in stereo, and the sound moves around you.
 
+> **A personal note.** L/RRY started before the FM-1 got popular, as my own synth on a Teensy. I designed it for myself, not modeled on any other synth I know, and then ported it to the FM-1. Now I'm happy to share it with the community.
+
 <p align="left"><img src="docs/lrry-deck.png" alt="L/RRY" width="720"></p>
 
 > **This is a beta.** L/RRY works and plays clean on the author's unit, but it is new. Expect rough edges and tell us what you find. Until version 1.0 the way patches and settings are saved may change, and a backup made with one version may not restore in the next.
