@@ -1,0 +1,1531 @@
+# Felucca editor protocol (SysEx over USB-MIDI)
+
+The firmware side is `firmware/src/editor.c`. Commands 1-15, track selection, dumps, step reads
+and parameter writes (27, 29, 30, 31) were checked on hardware. `tests/editor_test.c` also exercises the real C
+handler, malformed transfers and stop timeouts against simulated flash. User-preset
+flash writes and live pushes (16-26, 32) have host coverage; that does not establish
+their hardware behavior. The step chance byte, motion (64) and the full backup (65-67) have host
+coverage only (`tests/editor_test.c`, `tests/backup_test.c`, `web/test_backup.mjs`).
+
+**0.2.14, what changed in this protocol (the rest of this document says it as of Felucca 1.x; where it differs, this wins):**
+the DRUM and DIGITAL engines and the drum grid are gone from the device. Engines 1 (DIGITAL), 4, 8, 10 (DRUM) and 13 are all the same
+silent placeholder, named "-", with no presets; nothing is converted to FM6 or DRUM any more (`SET` of `G_ENGSEL`, `PRESET`, `UP_LOAD` and
+projects with such a track keep the number as stored and play silent, or, for `G_ENGSEL`, go to ANALOG). The three step bytes of v5
+(lane hits, accents, their bit 7) are still sent and accepted, always 0 and ignored; `UP_GET` answers kind 0, and `UP_PUT` with kind 1 (a
+drum grid) is refused as bad arguments; a stored grid record reads as empty. Ids 83..90 are L/RRY's parameters, there are no lane levels. A
+project, a patch or a multi keeps its two lane bytes per step in the file (written 0). The web editor's own DRUM / DIGITAL tables,
+grid view and library-file converters (`web/editor.html`, `web/editor/mockunit.js`) were not changed in 0.2.14 and are out of date.
+
+**0.2.14, the old stored formats are no longer read (Removed: loading of saves from before 0.2.14).** The device loads a stored
+object only in the form it writes now; any other is refused (a `BACKUP_PUT` answers rc 1 at begin or rc 2 at commit) or read as empty, and
+nothing is changed. No conversion is left in the device, and no mapping by parameter count. Per object:
+- **Projects** (id 0, and the autosave): FUN11 ("FUNB", 3840 bytes) with `P_COUNT` (127) at byte 66, the revision 6 at byte 67 (memory trim 1: two parts and no song chain block, plus cloud job A: the extension slots and the hand-set B edit list per part; 5 = either of those alone, refused; 4 = 0.2.22 .. 0.2.25 with four parts, 3 = 0.2.19 .. 0.2.21, 2 = 0.2.16 .. 0.2.18: all refused), NPART (2) at
+  byte 63 and 2 at byte 64. Not projects: FUN1 .. FUN10, a FUN11 of revision 0 .. 5 (L/RRY up to 0.2.25) or of another `P_COUNT`, a project that says four parts (byte 63), a project of the
+  sizes 3388, 3584 or 3648. Begin of id 0 answers rc 1 for any size but 3840; commit answers rc 2 for a 3840-byte object that is not a
+  current FUN11; the editor refuses such a backup file when it reads it ("the music of an older L/RRY version"); the autosave of an older version is ignored at power-on (the unit starts as a new one, on CLK AUTO). Ids 2..5 and 8 (the old project
+  slots, the FM6 bank): accepted whatever their length and dropped.
+- **Multis** (ids 13..20): a record is version 5 (0.2.19: the level split; 4 = 0.2.16 .. 0.2.18 is refused) with `P_COUNT` parameters and `G_COUNT` globals, nothing else. Commit answers rc 2 for an
+  object with a record of version 1 .. 4 or of another count. A slot that holds one lists as empty ("--"); a factory slot (M01 .. M10) shows
+  its factory multi instead; the next SAVE replaces the record.
+- **Patches** (cloud plan job A, caps bit 5: id 40 plus a slot byte, one record at a time; "Patch records in the archive" below. Before it, ids 6, 7, 9 .. 12, 27 .. 31, 35 .. 39: the sixteen physical chunks, gone from the ids a unit takes): a record without flag 128 (bit 7 of byte 4, written by every 0.2.14 patch) is not a record: commit answers
+  rc 2 for the record (or, on a firmware of before job A, a chunk that holds one); a chunk of the flash that holds one drops it at power-on. Bit 2 of the flags (the drum grid until 0.2.18; **0.2.19: `PTF_TR`**, the loudness is the `TRIM` pair and the record holds no mixer level) may be 0 or 1: a record without it (0.2.14 .. 0.2.18) is still read, its `LEVEL` (id 0) taken as its trim. A
+  record is always L/RRY's layout (`UP_PUT` too) with its `P_COUNT` values; 0.2.2's bipolar CUT (SLOPE 0), CRUSH BITS of before, PHYS MODEL 2
+  (DUST) and Felucca's ids 8, 61..80 and 83..90 are not converted (the paragraphs below describe how 0.2.13 and before did it).
+- **Settings** (id 1): the current record only (exact size, magic PER4): begin answers rc 1 for another size; PER1 .. PER3 and a PER4 without
+  the patches' favourites 32..127 are refused. A palette id that is not tagged (Felucca's) is refused (rc 2). A MIDI LEARN map of Felucca's
+  ids is not cleaned any more (byte [15][25] is written, not read). The settings of 0.2.13 are read as before.
+
+**0.2.19: the level split (owner decision, 2026-10-15; still 127 parameters, P_E0 119: a new parameter id that takes a free one).** A part's one level (id 0, `LVL`) was both the sound's loudness and the player's fader. Now:
+`LEVEL` / `LVL` (id **0**, as before) is the **MIXER LEVEL**: the player's volume, 0..127 (F_DB, 112 = 0 dB), default **112** (unity; was 104). It is not part of a patch: `PRESET`, `UP_LOAD`, a MIDI program change, an engine change and every other sound load keep it; it is stored in a multi and the project, and it is the editor's part-header LVL, `TRACK_MIX`'s level, `TRACK_CHANGED`'s id 0 and CC7.
+`TRIM` (id **109**, was the legacy `DKHLD`, DUCK HOLD, never read since 0.2.5) is the **PATCH TRIM**: the sound's loudness, 0..127 (F_DB, 112 = 0 dB), default **104**. It is part of the sound: a sound load sets it, `UP_STORE` / `UP_PUT` store it, `UP_GET` / `UP_LOAD` return it; a factory sound's pairs carry it (what 0.2.18 called the sound's LEVEL). `DESC` of id 109 says `TRIM`, fmt 6 (DB); an editor that takes labels from `DESC` shows it on the VOICE 2/2 page (K4: GLMOD GLD SPRD TRIM; PAN left that page). It is not morphed and not a motion parameter.
+The part plays at TRIM x LEVEL (the dB sum, held to +7.5 dB). The matrix destination 23 is named `TRIM` now and moves the trim. **Records:** `UP_PUT` writes the trim and ignores the sent id 0 (a record holds no mixer level; the decoded id 0 is the stored default 104); `UP_GET` of a record written before 0.2.19 returns its old LEVEL as `TRIM` and 104 as `LEVEL`. Projects are revision 3 and multis version 5 (older ones are refused, above); the backup file is unchanged. `P_COUNT`, `G_COUNT` and the formats' sizes did not move.
+
+**v3 (four tracks):** the device has four tracks, each a synth part (since 1.0; before it, track 4
+was a GM drum track: see "Track 4 since 1.0" below). One
+of them is *selected* (ALGORITHM on the device, or `TRACK`). Every v1 / v2 command acts on the
+selected track (its parameters, engine, preset, steps, the user presets it stores or loads); `TRACK`,
+`TRACK_MIX`, `TRACK_DUMP` and `TRACK_STEP` reach any track. Command numbers 1-26 are unchanged.
+
+**v4 (any track's parameters):** `TRACK_PARAM` gets or sets a parameter of any track without changing
+the selection, and the `TRACK_CHANGED` push follows level, pan and mute of the tracks that are not
+selected. The v1-v3 commands are byte for byte as before; v4 is asked for with bit 1 of `WATCH`.
+
+**v5 (the drum grid):** a step also holds lane hits and their accents (see "v5: the drum grid" below).
+`STEP_GET` / `STEP_SET` / `TRACK_STEP` replies get 3 more bytes, `STEP_SET` / `TRACK_STEP` take them
+optionally, and `UP_GET` / `UP_PUT` carry a user preset's 16-step grid after its pattern. Every
+earlier byte is where it was; an editor that reads the first bytes of a reply keeps working.
+
+**v7 (motion, chance, backup, 89 parameters):** a step gets a chance byte after its hits. `MOTION` (64) reads
+and edits a track's recorded knob moves. `BACKUP_LIST` / `BACKUP_GET` / `BACKUP_PUT` (65-67) read and
+restore the whole device. P_COUNT is 89 and P_E0 is 81: twenty FM operator parameters (ids 61..80) went in
+before the engine parameters, which moved from 61..68 to 81..88. Always take P_E0 from `INFO`. INFO ends with
+tagged capability blocks for these (see `INFO`).
+
+**MENU settings (1.0.4):** `MENU_DESC` (72) and `MENU_SET` (73) read and set the device's MENU settings, described
+by the device (see "MENU settings" at the end); INFO advertises them with `4E 01 count`. 1.0.5: a `MENU_DESC` reply
+ends with the item's tab on the device (index and name), after the bytes 1.0.4 sent. 1.3: item 23 HOME (DISPLAY),
+appended (`4E 01 24`).
+
+**Ratchet (1.0.5, INFO `52 01 04`):** a step gets a ratchet byte (its hits, 1..4) after its chance: one more byte at
+the end of the step replies, and an optional last byte of a step write (see "Ratchet" below). Nothing else changed.
+
+**Parameter locks (1.1, INFO `4C 01 01`):** a motion record can be a lock: its value sounds on its step only and
+goes back after it. `MOTION` (64) gets ops 5..7 (set a lock, clear a step's locks, the query with the kinds); the
+query and ops 1..4 reply byte for byte as before (see "Parameter locks" below). A lock takes no new bytes in a
+project (bit 7 of a motion record's id); 1.1 projects are FUN9 for the DRUM lane levels below.
+
+**Chord keys (91 parameters, 1.0):** two track parameters, `CHRD` (81) and `VOIC` (82), went in before the
+engine parameters, which moved from 81..88 to 83..90: P_COUNT 91, P_E0 83. No command changed; an editor that
+takes P_COUNT and P_E0 from `INFO` keeps working (see "The chord keys" below).
+
+**DRUM lane levels (99 parameters, 1.1):** eight track parameters, `KICK` .. `BELL` (83..90, the DRUM engine's lane
+levels), went in before the engine parameters, which moved from 83..90 to 91..98: P_COUNT 99, P_E0 91. No command
+changed; projects are FUN9 (3648 bytes, see "Projects (FUN9)"). See "The DRUM lane levels" below.
+
+**1.2 (FUN10: 104 parameters, 128 motion records, NUDGE, song sections; INFO `41 01 00 01`, `54 01 16` and `57 01 4`):** four track parameters,
+`SYNC` `TRIG` `POL` (91..93, LFO 2) and `QNTZ` (94, QUANTIZE), then `SPRD` (95, SPREAD, before FUN10's release),
+went in before the engine parameters, which moved from 91..98 to 96..103: P_COUNT 104, P_E0 96 (builds of 1.2 before
+SPREAD: 103, 95). The four tracks share 128 motion records (64 before): `MOTION` replies as
+before 1.2 (max 64, at most a track's first 64 records), op 8 lists them all. A step gets a nudge byte after its
+ratchet. A song's rows became sections with a slot per track (`SONG` ops 4..7; ops 0..3 as before). Projects are FUN10
+(3840 bytes). See "1.2: LFO 2, NUDGE, 128 records (FUN10)" and "1.2: song sections" below.
+
+**1.4.1 (FM6's voice bank; INFO `56 01 32`):** FM6's SLOT (P_E0 + 7) runs to 40: 9..40 = B1..B32, the voices of a
+32-voice bank the editor writes whole (cmds 74..77). Nothing else changed. See "FM6 voice bank (74-77)" below.
+
+**1.5 (111 parameters, FUN10 as it was):** seven track parameters went in before the engine parameters, which moved
+from 96..103 to 103..110: P_COUNT 111, P_E0 103. The INSERT, `INSRT` `INS A` `INS B` `INS C` `MIX` (96..100, a per-track
+insert effect with a dry / wet mix, Discussions #78 #177), then `TYPE` (101, ANALOG's filter LP / BP / HP, #104) and
+`ESYNC` (102, ENV SYNC: ATK DEC REL as note values of the tempo, #175). No command changed; an editor that takes
+P_COUNT and P_E0 from `INFO` keeps working. Projects stay FUN10 (3840 bytes, 111 at byte 66; 16 bytes to spare). See
+"1.5: the INSERT" and "1.5: filter TYPE, ENV SYNC" below.
+
+**L/RRY step 3 (still 111 parameters, P_E0 103; projects FUN11):** L/RRY reuses the 29 ids Felucca gave to things L/RRY
+does not have, so P_COUNT stays 111 and every 7-bit id carrier (this protocol, motion records, MIDI LEARN, user preset
+records) is unchanged. **The meaning of these ids changed** (an editor must take labels from `DESC`, not assume Felucca's):
+
+| id | L/RRY | was (Felucca) |
+| --- | --- | --- |
+| 8 | `-` free (fmt INT, 0..0) | `FX` (ENV DEST, never read) |
+| 61..72 | matrix slots 5..8: `SRC5 DST5 AMT5` .. `SRC8 DST8 AMT8` (as slots 1..4) | DIGITAL's OP1..OP3 ENV / LVL |
+| 73..76 | ENV 2: `ATK2` `DEC2` (TIME) `SUS2` (PCT) `REL2` (TIME), defaults 10 70 90 60; with `ESYNC` (102) on, note values as ENV's | OP3..OP4 ENV / LVL |
+| 77..80 | LFO 2: `RATE2` (LFOHZ, 60) `WAVE2` (SIN TRI SAW SQR S&H) `PHS2` (0..127) `FADE2` (TIME) | OP4 ENV / LVL |
+| 83..85 | LFO 2: `SYNC2` (as SYNC 91) `TRIG2` (NOTE FREE) `POL2` (BI UNI) | DRUM lane levels KICK SNARE CLAP |
+| 86..90 | `-` free (fmt INT, 0..0) | DRUM lane levels HATCL .. BELL |
+
+**0.2.9: the multimode filter (ids 45..48, still 127 parameters).** Ids 45..48 were the SLICER's SLCR PAT RATE DEPTH in Felucca, `-` free in L/RRY up to 0.2.1, and 0.2.2 .. 0.2.8 used 45 (a bipolar `CUT`, -64..63, 0 OFF, negative a low-pass, positive a high-pass) and 46 (`RES`). Since 0.2.9 they are the four knobs of EDIT > FILTER:
+45 **`CUT`** (fmt 23 `FILT`, 0..82, default 82: a dial step shown as its cutoff, step d = table index (40 + 396 d) / 256 of the 30 Hz .. 16 kHz cutoff table, so 0 is 30 Hz and 82 16 kHz, the open end; each step is 0.2.2's step),
+46 **`RES`** (fmt PCT, 0..127, default 0),
+47 **`MODE`** (fmt 24 `FMODE`, 0..127, default 0: 0 LP, 64 BP, 127 HP and every blend between; shown LP, LP>BP, BP, BP>HP, HP),
+48 **`SLOPE`** (fmt ENUM, **1..2**, default 1: 12dB, 24dB; the first enum whose range does not start at 0: `DESC` sends the names of min .. max).
+They act on the engines with no filter of their own (PHASE LOFI VOICE WHEEL PHYS FM6 WAVE: engine bytes 2 3 5 7 9 12 14), where the ENV / LFO FLT depths, the matrix's CUT and `CC` 74 / 71 drive them. Since the same release they also run on ANALOG, TRIO and NOISE (engine bytes 0 6 11) **in series after the engine's own filter** (the device's page `FILTER`, as on every engine; their own filters are on the pages VCF (ANALOG), TRIO FILTER and NOISE FILT; an editor lists the same four ids as a page of those engines): there the engine's filter, its routes and `CC` 74 / 71 are exactly what they were, the multimode filter's effective cut is its CUT alone, and the matrix destination 38 FRES is its RES (live there, no longer faded; the DEST line reads "MULTI FILTER RESONANCE"). They are bypassed by default there too, so every sound of before is bit for bit the same. On the retired engines (4 8 13) and DRUM they are stored and do nothing. They are the SOUND's (a sound load sets them), not the track's. Take the labels and ranges from `DESC`. Automation (`MOTION`) records CUT and RES like any knob move (MODE and SLOPE are not automated). The MORPH rolls all four (SPEC 2.5, rule 3g). `CC` 74 / 71 are CUT / RES on those engines: CC74 0..127 spans the whole CUT dial (0.2.2's "64 = OFF" is gone); a MIDI LEARN map on CUT spans it the same way. The effective cut is CUT plus every modulation (ENV 1 / ENV 2 / LFO 1 / LFO 2 FLT depths and the matrix destination CUT, 1/256 dial steps as before), clamped to 0..82. **The BYPASS: MODE LP (0) with the effective cut at the open end: the filter is not run and the sound is bit for bit as without it (the defaults; RES and SLOPE do not matter there).** Over the last 4 dial steps at a closed end the output fades to silence (LP / BP at 0, HP / BP at 82). No card is faded for a value of 0.
+**0.2.21: KEY TRK (id 27, still 127 parameters), and the filter pages.** Id 27 was `QNT` (OFF SNAP WHITE SEQ; retired 2026-10-12, nothing read it, every store wrote its default 0). It is now **`KTRK`**, the multimode filter's key tracking: fmt **27** `KTRK` (new, appended after 26 `BMONO`), range **-63..+63**, default 0 (off), shown -100 .. +100 % (`v × 100 / 63` rounded away from 0, a `+` before a positive one; 63 is +100 %: the cutoff moves one octave per octave of pitch around MIDI note 60; the editor's `fmtValue` has the same case). A DESC of id 27 now answers the label `KTRK` and this format; a client that reads descriptors needs nothing else (an older editor shows it as a plain number, `default: String(v)`). It is part of the sound (a patch record carries it, a sound load sets it, no longer kept like the arp / scale ids 17..32), automatable (`MOTION` records, like CUT and RES), learnable (`LEARN_*`: the code is id + 1), and on the engines with the multimode filter only (`ufilt` 1 and 2). There is no CC for it. 0 is the filter as before, bit for bit.
+`PAGES[]` (layout.json): the page MULTI FILTER is now two, **MULTI FILTER 1/2** (45..48) and **MULTI FILTER 2/2** (ids 27, 114, 14: `KTRK`, and the DEST pages' `FLT` of ENV 2 (`P_E2FLT`, id 114) and LFO 1 (`P_LD_FLT`, id 14)), after the engine's own filter pages (VCF, TRIO FILTER, NOISE FILT). The two FLT ids are the same stored values as on ENV 2 DEST and LFO 1 DEST; and the unit's card names on 2/2 are ENV 2 and LFO 1. layout.json's `ID` gained `P_KTRK`, `P_E2FLT`, `P_LD_FLT`. **0.2.22:** MULTI FILTER 2/2's K4 is LFO 2's cutoff depth (`P_L2FLT`, LFO 2 DEST's FLT; card name LFO 2; `ID` gained `P_L2FLT`; no AMP ENV card), and KTRK's default is **32** (the stored default of a patch record stays 0), and a depth is shown **at both places**: the DEST pages draw their FLT cards on every engine, and MULTI FILTER 2/2 draws ENV 2, LFO 1 and LFO 2 on the ufilt 1 engines (ANALOG, TRIO, NOISE: the DEST pages only; 2/2 shows KTRK alone). The page FX > GLOBAL FX is now **SEND FX** (scope FXSUM, `global` 0: the effects' main settings, no send levels; read-only, no parameter ids). A page whose K1 id equals a global id (27 is also `G_BM`, the master page's pseudo id) is told apart by its `scope`.
+**Old stores (how 0.2.9 .. 0.2.13 did it; since 0.2.14 nothing is converted and such a store is not read):** SLOPE is never 0 in 0.2.9; a stored sound with 48 at 0 (or without 48: a patch record of before) holds 0.2.2's bipolar CUT at 45, and the device converts it when it loads (patch records, projects, multis, the autosave, `UP_PUT`): OFF -> CUT 82, MODE LP (the bypass); a low-pass c (-64..-1) -> CUT 82 + c, MODE LP (the same cutoff exactly); a high-pass c (1..63) -> CUT c, MODE HP (0.16 of a table step higher); SLOPE 12 dB. Its CUT automation goes with it. An editor that sends a sound of before with `SET`s should convert it the same way first (web/editor.html `ufLegacy`); one that sends it whole (`UP_PUT`) need not. On ANALOG, TRIO and NOISE nothing was ever meant by 45..48, so a stored sound of before with 48 at 0 there takes the bypass whatever it holds (CUT 82, RES 0, MODE LP, SLOPE 12 dB; a leftover from another engine must not switch the filter on), and its CUT automation goes to the open end; the editor's `ufLegacy(p, serial)` does the same. A store of Felucca's layout (projects FUN10 and before, user preset records of versions 1..5) reads 45..48 as the defaults (the bypass).
+
+ENV 2 and LFO 2 have no destination amounts of their own: they reach the sound only through the matrix. The matrix's
+SRC lists grew (append-only): 11 ENV2, 12 LFO2; DST: 21 RATE2 (LFO 2's rate), 22 DEPTH2 (LFO 2's depth). Automation
+(motion) records ATK2..REL2 and RATE2..FADE2 (as their ENV / LFO twins), not SYNC2 TRIG2 POL2 and not the matrix.
+Stores of Felucca's layout (projects FUN10 and before, user preset records of versions 1..5, settings without L/RRY's
+MIDI LEARN mark; 0.2.14 reads none of them) loaded, up to 0.2.13, with every id above at its L/RRY default (matrix slots 5..8 OFF): their old values never reach a
+L/RRY parameter. A DIGITAL sound in such a store still converts with its OP ENV values (read before the reset).
+User presets L/RRY writes are version 6 (7 with a drum grid); `UP_PUT` records are taken as L/RRY's layout.
+Projects are FUN11 (`46 55 4E 42`, "FUNB", 3840 bytes): FUN10's layout with only parts A and B (tracks 1..2) stored,
+their FM6 patches at 3824 − 2 × 128 (memory trim 1: revision 6 has no song chain block and no tracks 3..4 at all; older revisions are refused). (Up to 0.2.13 FUN10 and older loaded, then as above, tracks 3..4
+not kept; 0.2.14 refuses them.) Firmware before L/RRY step 3 (and Felucca) refuses a FUN11. Byte 67 of a FUN11 (0 until 0.2.13) is 1 since 0.2.14: CRUSH's BITS (INS A) is the new curve; a 0 there (and every FUN10 and older) holds the old one, which 0.2.13 and before converted on load and 0.2.14 refuses.
+
+## Framing
+
+A request is `F0 7D 46 4C <cmd> <args...> F7`:
+
+- `7D` is the non-commercial SysEx ID.
+- `46 4C` is "FL".
+
+Every valid request gets exactly one reply, with the same header and the same `<cmd>`.
+Unknown commands and invalid fixed argument lengths get no reply; argument errors
+follow the command-specific rules below.
+Fixed-size commands require exactly the lengths in the tables; step writes accept the
+8-byte legacy step, the 11-byte grid step, the 12-byte step with its chance (a chance above 100 gets
+no reply) or the 13-byte step with its ratchet (a ratchet outside 1..4 gets no reply). Every data byte is 7 bit.
+MIDI realtime bytes may occur inside SysEx; another status aborts the partial frame. While the editor
+watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at any time.
+
+| Item | Encoding |
+| --- | --- |
+| value (v14) | 2 bytes, LSB first, holding value + 8192, so the range is -8192..8191. `[lo, hi]`: value = (lo \| hi << 7) − 8192 |
+| u32 (v7) | 5 bytes, 7 bits each, LSB first; the last byte is 0..15. Used by the backup commands |
+| string | ASCII bytes, ended by a 0 byte |
+| scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1); **2 = extension slot of the selected track (cloud plan job I, INFO tag `59 01 NX`; id 0..NX−1: "Scope 2" below)** |
+| track | 0..3: tracks 1..4 (synth parts) |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 reserved (SAMPLE until 0.2.8), 5 VOICE, 6 TRIO, 7 WHEEL, 8 reserved (GRAIN until 0.2.8), 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE until 0.2.8), 14 WAVE (0.2.5: NENGINES 15; before it 14). **0.2.9 retired SAMPLE, GRAIN and SLICE:** INFO still lists 15 names, theirs are `-` (as DIGITAL's); `DESC` of their E slots gives `-` (fmt INT, -64..127, so a stored value is kept); a part or patch that names one plays silent and keeps its values; `SET G_ENGSEL` or `PRESET` with one gives ANALOG's first sound. The device and the editor list the pickable ones in another order (ANALOG FM6 PHASE LOFI VOICE TRIO WHEEL PHYS NOISE WAVE, DRUM hidden: `ENGINE_ORDER`, 10 shown); the numbers stay |
+
+The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
+1.1), and `INFO` gives `P_E0`.
+Their meaning, range and names depend on the current engine, so re-read `DESC` for them
+after an engine change.
+
+The modulation matrix (the MOD and MOD 2 pages, `firmware/src/mod.c`) is 24 track parameters at ids 49..72 (L/RRY: 8
+slots; Felucca had 12 at 49..60 since P_COUNT 69): slot k (1..8) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) ..
+51 + 3 (k − 1). Slots 5..8 are as slots 1..4 (the table's ids + 12).
+
+| id | label | values |
+| --- | --- | --- |
+| 49, 52, 55, 58 | SRC1..SRC4 | enum: 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11), 9 S&H (a random value held for one cycle of the track LFO), 10 SLEW (S&H gliding from the cycle before's value), 11 ENV2 (the voice's ENV 2, L/RRY), 12 LFO2 (the track's LFO 2, L/RRY), 13 MORPH, 14 DUCK, 15 CYCLE, **16 BREATH (MIDI CC2) and 17 FOOT (MIDI CC4), 1.1**: the part's channel's controller value 0..127 as a 0..1 source (like MODW; 0 until a controller arrives, CC121 resets them), appended so no stored number moves; `DESC` of SRC1..SRC8 gives max 17 and the names `BREATH` and `FOOT` (owner, 2026-10-25: "we do not need to say controller"; one table entry each). CC2 and CC4 stay locked numbers: they cannot be mapped or learned for a parameter. A morph never rolls or moves a route from them (like MODW, AT and EXPR) |
+| 50, 53, 56, 59 | DST1..DST4 | enum (46 names since 0.2.7; 23 before): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 SAT, 7 CHO, 8 DLY, 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (the track LFO's depth: a gain on LFO DEST and the matrix's LFO source), 21 RATE2 (LFO 2's rate), 22 DEPTH2 (LFO 2's depth) (per block); 0.2.7, appended (per block, the part's own ids): 23 LEVEL (id 0), 24 INS A, 25 INS B, 26 INS C (ids 97..99, named by the INSERT TYPE as `DESC` of those ids does), 27 IMIX (100), 28 EQLOW (8), 29 EQMID (88), 30 EQHI (103), 31 DUCK (DEPTH, 107), 32 ATK2, 33 DEC2, 34 SUS2, 35 REL2 (73..76), 36 E2FLT (114), 37 E2SHP (115), 38 FRES (46, the multimode filter's RES); bus values (an offset per part on a global value: in DUEL on the part's own bus, in STEREO / LAYER both parts' offsets add): 39 CRT (global 10), 40 CDP (11), 41 FDBK (5), 42 DMDEP (13, the delay modulation's DEPTH), 43 DMRAT (12, its RATE), 44 RSIZE (8), 45 RDAMP (9). The delay's TIME is no destination |
+| 51, 54, 57, 60 | AMT1..AMT4 | −64..63 (fmt BIPCT) |
+
+`DESC` names E1..E8 as such; the device shows the engine's label of that parameter instead (`DESC` of
+`P_E0 + n`), and so does the editor. (0.2.7) So it does for INS A..C (`DESC` of ids 97..99, the INSERT TYPE's labels), and
+the MATRIX page names the selected destination in full ("DEST: WAVE SYNC", "DEST: REVERB SIZE"). A destination the part cannot
+move with its current choices does nothing and the device shows it faded with the reason: an engine slot labelled "-" (UNUSED),
+WAVE's TABLE (REBUILD), FM6's SLOT (LOADS), (until 0.2.8: SAMPLE SET and SLICE SRC DIV START REV, AT NOTE: read only as a note starts), PAN in
+DUEL, INS A..C and IMIX while the INSERT TYPE is OFF, RES on an engine with a filter of its own; an editor may do the same. A
+stored DST keeps its number (append-only): a sound saved with 0.2.6 means the same; a sound with DST 23..45 loaded by older
+firmware is outside that firmware's list (it does not have them). A slot with SRC, DST or AMT at 0 does nothing; every default is 0
+(a factory preset sets all twelve to 0). The modulation never changes the stored values: `GET`,
+`DUMP` and the pushes report what was set.
+
+**DIGITAL (engine 1) was replaced by FM6 (Dexed-based)** in 1.0. The number stays reserved: `INFO` names it
+"-" (a build with `LRRY_FM4=1` has DIGITAL back, named "DIGITAL"), `NAMES 1` lists no presets, its EDIT
+descriptors are "-" with DIGITAL's ranges, and no track ever has it. Whatever brings a DIGITAL sound plays it as
+FM6 with a patch converted from its values (`firmware/src/fm4_convert.c`; the patch is the track's own, `FM6_GET`
+reads it, a project keeps it): `SET` of `G_ENGSEL` = 1 (DIGITAL's first preset), `PRESET` 1 k (its preset k),
+`UP_LOAD` of a slot stored with engine 1 (`UP_PUT` still takes engine 1: the record keeps the DIGITAL values, every
+load converts them), projects with DIGITAL tracks (their motion on E1..E8 and ids 61..80 is dropped). The track
+reports engine 12 (FM6) and the FM6 preset that covers the sound. The editor converts DIGITAL patches of library
+files the same way (it equals the firmware's, `test_web.mjs`).
+
+(L/RRY: the next two paragraphs describe Felucca's layout, as stores of Felucca hold it; on a L/RRY device ids 61..80
+and 83..90 are L/RRY's, see "L/RRY step 3" above.) The four FM operator envelopes (the DIGITAL engine's OP1..OP4 ENV
+and OP LEVEL pages, `eng_digital.c`) are twenty track parameters at ids 61..80, five per operator: operator k (1..4) has `ATK`, `DEC`, `SUS`, `REL`,
+`LVL` at ids 61 + 5 (k − 1) .. 65 + 5 (k − 1). Since DIGITAL was retired they are inert: no page and no editor
+layout shows them, only the conversion of a DIGITAL sound reads them (its FM6 tracks hold the defaults). The ids
+and labels stay (library files key values by label).
+
+| id | label | fmt, range, default |
+| --- | --- | --- |
+| 61, 66, 71, 76 | ATK | TIME, 0..127, 0 |
+| 62, 67, 72, 77 | DEC | TIME, 0..127, 0 |
+| 63, 68, 73, 78 | SUS | PCT, 0..127, 127 |
+| 64, 69, 74, 79 | REL | TIME, 0..127, 0 |
+| 65, 70, 75, 80 | LVL | PCT, 0..127, 127 |
+
+The defaults change nothing: the sound is the same as before the parameters existed. The master `ENV`
+(ids 1..4) shapes the whole voice; these shape each operator on top of it. Other engines ignore them, and the
+device shows the pages for DIGITAL only. Descriptors are the same for every engine.
+
+The chord keys (SEL > CHORD on the device, `firmware/src/chord.c`) are two track parameters at ids 81, 82:
+
+| id | label | values |
+| --- | --- | --- |
+| 81 | CHRD | enum: 0 OFF, 1 DIA3, 2 DIA7 (the triad / seventh of the instrument's global SCALE and ROOT on the key: every tone in key; plain MAJ / MAJ7 while the scale is CHROMATIC), 3 MAJ, 4 MIN, 5 DOM7, 6 MAJ7, 7 MIN7, 8 SUS4, 9 POW (fixed shapes) |
+| 82 | VOIC | enum: 0 CLOSE, 1 OPEN (1-5-3), 2 INV1, 3 INV2, 4 +OCT (the root an octave down; a seventh drops its fifth) |
+
+With CHRD on, a key, a MIDI note of that track and so the arp's held notes play the chord (at most 4 notes),
+and live recording writes it into one step; MONO / LEGATO / UNISON play its root; a kit (DRUM, SLICE)
+ignores it. Both defaults are 0: nothing changes until CHRD is set. They are the track's, like ARP: a
+sound load (a factory preset, `UP_LOAD`, an audition) keeps them, and motion never records them.
+**STRUM** (1.1 item 144) is the CHORD page's third control: scope 2 slot 27 (see the extension slots table), 0..100 ms between
+the chord's tones, lowest first, 0 = OFF. It acts on a chord that keys or MIDI notes play with the arp not playing (with the arp on, the
+arp sequences the tones; MONO / LEGATO / UNISON play the root alone; sequencer steps play their stored notes together). A note-off before
+a tone's turn cancels it. Unlike CHRD / VOIC it is stored with the patch (no part id is free).
+
+The DRUM lane levels (EDIT > LANES / LANES 2 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
+ids 83..90, one per lane: 83 KICK, 84 SNARE, 85 CLAP, 86 HATCL, 87 HATOP, 88 TOM, 89 RIM, 90 BELL. Percent (`F_PCT`),
+0..127, default 127 = 100 % (the kit as designed), square law (64: about −12 dB). Only the DRUM engine reads them; the
+editor shows them on a DRUM track only (the device's pages). They are the sound's (not the track's): a factory preset
+sets them back to 127, user presets and projects store them (older ones load at 127), motion records them.
+
+Other enums that grew: `P_SDIV` (DIV, id 30) has 10 names (1/4, 1/8, 1/16, 1/32, 8T, 16T, 1/2, 1/1, 2BAR,
+4BAR; the first six keep their numbers), `P_AMODE` (id 17) 15 (OFF, UP, DN, UPDN, RND, ORD, REPEAT, and since 1.2 DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK,
+CHORD: values 7..14, appended; an editor that knows only 7 names shows the value by `DESC`'s name), `P_AHOLD` (HOLD, id 22; 0.2.9) 3 (OFF, ARP, ALL: 0 and 1 are the old OFF / ON, so stored data stays valid; ALL, value 2, latches the keys even with the arp off; max 2, not morphed or rolled) and the
+global `G_CLOCK` (id 2, label "CLK") 4 (INT, USB, TRS, AUTO; AUTO = 3 appended in 0.2.14 and the default, the device shows the order AUTO INT USB TRS). `G_MIDI` (id 12) was an enum of USB / TRS that nothing read; since 0.2.5 it is the delay modulation's RATE (`DESC`: label "RATE", LFOHZ, 0..80, default 44) and `G_SYNC` (id 13, was the one-name placeholder "--") is its DEPTH (label "DEPTH", PCT, 0..100, default 0; 0 = off). Both are global parameters on the device's DELAY 2/2 page, stored with the project and a multi; an old store holds 0 (or, for id 12, 0/1) there, which is DEPTH 0 = no change.
+
+**Retired enum values (aliases).** A value that no longer exists keeps its number, so stored sounds stay valid:
+`DESC` names it like the value it now plays (an alias), the device never holds it (a `SET` of it lands on that value
+and the reply says so) and its knob steps over it. Of a repeated name, the original is the first value when that has
+the name, else the last one with it; an editor should list only the originals and show an alias by its name when
+it ever sees one. Today: DRUM KIT (engine 10, E1)
+1, 2, 3 (once HAND, CYM, H+CYM; 1.0.5) = 6 (66), 5 (10), 8 (77): its names are STD 66 10 77 80 10 66 55 77, the
+device's knob steps STD 80 10 66 55 77. (SAMPLE SET and GRAIN SRC 1 and 4, once TRANH, PERC, were aliases of 0 PIANO until L/RRY
+0.2.9 retired both engines.) An editor of before 1.0.5 (first of a name = original) offers 66 10 77
+at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device answers with 6 5 8.
+
+## Commands
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (2; 4 up to 0.2.25), then (v6) the song rows (L/RRY: 0, no song mode), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 caps` (3; 0.2.14: 7, then with the user wavetables 15; 0.2.15: 31, bit 4 = the patch store's sixteen chunks as backup ids; **cloud plan job A: 63, bit 5 (value 32) = the patches as records, one at a time: id 40 and `LIST page`, "Patch records in the archive"**; the chunk ids are gone then), `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25; 0.2.2: 20, 0.2.9: 21, 0.2.11: 22, 0.2.14: 20) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 00 01` (128 motion records: two 7-bit bytes, LSB first; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` (FM6's voice bank: cmds 74..77, SLOT 9..40) and (1.5) `43 01 16` (MIDI LEARN's map: cmds 78, 79) and (0.2.15) `58 01 lo hi` (the patch store's capacity, two 7-bit bytes, LSB first: 128 = `00 01`; every one of them can always be written) (below) and (0.2.19) `5A 01 caps` (bit 0 = PATCH_RAW, cmd 84, "PATCH_RAW" below) and (cloud plan job I) `59 01 NX` (scope 2: the extension slots 0..NX−1, NX = 16, 1.1: 28, "Scope 2" below) and (L/RRY, the MIDI MAP) `4B 01 1` (bit 0 = MAP_GET .. MAP_RESET, cmds 85..88, "MIDI MAP" below) and (1.1, item 159) `4F 01 1` (bit 0 = a part's values are read AS SHOWN at the MORPH fader, "Values at the MORPH fader" below), always the last block; older firmware ends earlier |
+| 2 GET | scope, id | scope, id, v14 |
+| 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
+| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track; `4F 01`: as shown at the MORPH fader), then G_COUNT × v14 (globals) |
+| 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 64 since 0.2.7, the matrix DST has 46; before: at most 24; firmware before the matrix: at most 16) |
+| 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100, then (`52 01`) ratchet 1..4, then (`54 01`, 1.2) nudge + 8 (0..15: −8..+7 sixteenths of the step) |
+| 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7) [, ratchet 1..4 [, nudge + 8, 0..15 (1.2)]]]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance, the ratchet or the nudge it keeps its own. The chance can only follow the hits, the ratchet the chance, the nudge the ratchet; a nudge byte above 15: no reply, nothing written |
+| 8 PRESET | engine, preset | engine, preset (applies the preset's sound to the selected track and sends; the steps and the track's own parameters stay, see "Sound loads and undo"). For another track, select it with `TRACK` first |
+| 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 (L/RRY: 0..15, the multis M01..M16 of SAVE > MULTI) | op, slot, used (1/0). Save writes flash: allow ~2 s; it stops the transport first (see "Saves while playing") |
+| 10 NAMES | engine | engine, count, count preset-name strings, then the two edit-page titles |
+| 11 SMP_BEGIN | slot 0..2 | slot, rc **6 (unsupported)**. 0.2.9 has no user sample slots (the SAMPLE, GRAIN and SLICE engines are retired); nothing is written. (Before: erased the slot's header sector, rc 0 ok) |
+| 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc **6 (unsupported)**; nothing is written. (Before: rc 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use) |
+| 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc **6 (unsupported)**; nothing is written. (Before: rc 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones) |
+| 14 SMP_ERASE | slot 0..2 | slot, rc **0**: there is nothing to erase and nothing is written (so a backup archive's empty sample slot restores as before) |
+| 15 SMP_INFO | — | **0, 0**: no slots, slot KiB 0 (0.2.9). (Before: slots, slot KiB (the largest), then per slot: zone count, name string, data KiB; then per slot its own size in KiB) |
+| 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1; 0.2.17: always 1), engine, name string; 1.2: then one category byte per slot listed (below); 0.2.17: then one SAVED byte per slot (1 a saved record, 0 its factory sound) |
+| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category; 0.2.17: then SAVED (1/0) |
+| 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2)]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s. 0.2.17: overwrites the slot |
+| 19 UP_STORE | slot, name | slot, rc. Saves the current sound over the slot: engine, parameters, End B, the arp block (0.2.17: the selected part plays that slot afterwards) |
+| 20 UP_LOAD | slot | slot, rc (0 ok, 1 bad slot). Applies its sound, a saved record or else the factory sound (not its pattern; the steps stay) |
+| 21 UP_ERASE | slot | slot, rc. 0.2.17: RESTORE: the saved record is removed, the factory sound is back (rc 0, nothing written, when the slot holds it already) |
+| 22 WATCH | on (0/1; v4: 3 = also `TRACK_CHANGED`; `4F 01`: 7 = also bit 2) | on (0/1; v4 firmware: 3 when 3 was asked for; `4F 01` firmware: bit 2 set when it was asked for). While on, the device pushes cmds 23, 24, 26 (and 32 with bit 1; with bit 2 every value of the other part, "Values at the MORPH fader") |
+| 23 CHANGED (push) | — | scope, id, v14 |
+| 24 RELOAD (push) | — | engine, preset, then (v3) the selected track |
+| 25 PING | — | 0 |
+| 26 STEP_CHANGED (push) | — | index, then (v3) the selected track |
+
+| cmd (v3) | Request args | Reply args |
+| --- | --- | --- |
+| 27 TRACK | — (query), or track (select it) | selected track, NTRK, then per track: engine byte, preset, level v14, mute (0/1), armed (0/1, live recording) |
+| 28 TRACK_MIX | track (get), or track, level v14 (0..127), mute (set) | track, level v14, mute: the track's `P_LEVEL` and `P_MUTE` |
+| 29 TRACK_DUMP | track [, 1 (`4F 01`): the stored Original] | track, engine byte, preset, P_COUNT × v14 (that track's parameters; no globals; `4F 01`: as shown at the MORPH fader, with the byte 1 the stored Original) |
+| 30 TRACK_STEP | track, index (get), or track, index, n, note0..3, time, flags, vel [, hits (v5) [, chance (v7) [, ratchet [, nudge + 8 (1.2)]]]] (set) | track, index, n, note0..3, time, flags, vel, then (v5) hits, then (v7) chance, then (`52 01`) ratchet, then (`54 01`) nudge + 8 |
+
+| cmd (v4) | Request args | Reply args |
+| --- | --- | --- |
+| 31 TRACK_PARAM | track, id (get), or track, id, v14 (set); id = `P_*` (0..P_COUNT−1) | track, id, v14 (the value after clamping, as `SET`). The selection does not change; no push about the editor's own write |
+| 32 TRACK_CHANGED (push) | — | track, id, v14: `P_LEVEL`, `P_PAN` or `P_MUTE` of a track that is not selected changed on the device (only while `WATCH` was sent with bit 1); with `WATCH` bit 2 (`4F 01`): any value of the other shown part, and then an extension slot carries a fourth byte, the scope 2 (track, slot, v14, 2) |
+
+| cmd (v7) | Request args | Reply args |
+| --- | --- | --- |
+| 64 MOTION | track (query); track, 1, on 0/1 (play on / off); track, 2 (clear); track, 3, step, id, v14 (set an event); track, 4, step, id (delete an event or a lock); (1.1) track, 5, step, id, v14 (set a lock); track, 6, step (clear the step's locks; step 127: every step's); track, 7 (query with the kinds); (1.2) track, 8 (every record, with the kinds); (1.1, INFO `4C 01` bit 1) track, 9, step, id lo, id hi, v14 (set an event) / track, 10, step, id lo, id hi (delete) / track, 11, step, id lo, id hi, v14 (set a lock), for target ids past 127 | track, rc, on (0/1), count (this track's events and locks), max (64), then count × (step, id low 7 bits, v14); after ops 5..7 (1.1) then count × kind (0 automation, 1 lock), in the same order. 1.2: ops 1..7 list at most the track's first 64 records (count ≤ 64, max 64: as before); op 8 answers track, rc, on, count lo, count hi, max lo, max hi (two 7-bit bytes each, LSB first; max 128), count × (step, id, v14), count × kind |
+| 65 BACKUP_LIST | — (the objects), or page 1..4 (cloud plan job A, caps bit 5: the saved patches of slots 32 (page − 1) .. 32 page − 1; needs the plain LIST before) | 1, rc, count (24 on a unit with caps 63; 40 with caps 31, 30 with caps 15, 27 with caps 7, 16 with caps 3; see "v7: full backup"), then per object: id, size u32, crc u32. A page: 1, rc, count, then per saved patch slot, size u32, crc u32 |
+| 66 BACKUP_GET | id, offset u32, count lo, count hi (≤ 256); a patch: 40, offset u32, count lo, count hi, slot | id, rc, offset u32, count lo, count hi, pack7 data (a patch reply does not repeat the slot) |
+| 67 BACKUP_PUT | op 0 begin: 0, id, size u32, crc u32 (a patch: 0, 40, size u32, crc u32, slot); op 1 data: 1, id, offset u32, pack7 data; op 2 commit: 2, id; op 3 abort: 3, id | op, id, rc |
+| 81 WT_LIST (0.2.14) | — | 3 (slots), 19 (frames), 64 (harmonics), then per slot: used (0/1), name string (up to 8 characters; "" if unused), CRC-32 of the 1216 data bytes (u32) |
+| 82 WT_GET (0.2.14) | slot, offset lo, offset hi (7 bit each), count (1..127) | slot, rc, offset lo, offset hi, count, pack7 data |
+| 83 WT_PUT (0.2.14) | op 0 begin: 0, slot, name (8 bytes, 0 padded), CRC-32 u32; op 1 data: 1, slot, offset lo, offset hi, pack7 data; op 2 commit: 2, slot; op 3 abort: 3, slot; op 4 erase: 4, slot | op, slot, rc |
+| 84 PATCH_RAW (0.2.19) | op 0 INFO: 0, slot; op 1 READ: 1, slot, offset lo, offset hi, count (1..112); op 2 BEGIN: 2, slot, length lo, length hi (20..534), CRC-32 (5 x 7 bit); op 3 DATA: 3, slot, offset lo, offset hi, pack7 data; op 4 COMMIT: 4, slot; op 5 ABORT: 5, slot | INFO: 0, slot, rc, saved, length lo, length hi, CRC-32 (5 x 7 bit); READ: 1, slot, rc, offset lo, offset hi, count, pack7 data; the others: op, slot, rc |
+| 85 MAP_GET (L/RRY, MIDI MAP) | chunk 0..3; or 4, code lo, code hi | chunk 0..3: chunk, map version (1), 32 lines of 3 bytes (bits 0..6, 7..13, 14..15); chunk 4: 4, code lo, code hi, kind, saved, automation, inert, name (0-terminated) |
+| 86 MAP_SET (L/RRY, MIDI MAP) | op 0: 0, CC, code lo, code hi, part rule, force; op 1 clear: 1, CC | rc, save, CC, its line (3 bytes), the owner's name on rc 2 (0-terminated, else empty) |
+| 87 MAP_ARM (L/RRY, MIDI MAP) | code lo, code hi, part rule; or nothing (cancel) | rc (0 armed, 3 invalid) |
+| 88 MAP_RESET (L/RRY, MIDI MAP) | — | rc 0, save |
+
+A slot number above 2 (or a request too short) gets no reply. (Before 0.2.9, without flash `SMP_BEGIN`, `SMP_WRITE`, `SMP_END`
+and `SMP_ERASE` got no reply.)
+
+**pack7:** groups of up to 7 bytes, each preceded by one byte holding their top bits
+(bit j = bit 7 of byte j). A mask must have at least one following data byte;
+unused mask bits in the last group must be zero. Oversized or incomplete transfers
+are rejected; BACKUP_PUT decodes at most 256 bytes a piece.
+
+**User sample slots (retired, 0.2.9).** The sample engines and their slots are gone; the slot format (header "FSMP" at 0, IMA
+ADPCM data at 512, SLICE's hand-set slices "SLM1" in the last sector) is no longer read or written, and the flash it used
+(0xA0000..0xC7FFF) was left unused; 0.2.14 uses 0xA0000..0xA5FFF for the WAVE user wavetables ("User wavetables" below), 0.2.15 uses 0xA6000..0xB9FFF for the patch store's chunks 6..15, 0xBA000..0xC7FFF (56 KiB) is free. The reference uploader `tools/fm1_sample_upload.py` is
+removed; `tools/sampleio.py` stays as a WAV helper of the host tests.
+
+`fmt` values (`firmware/src/core.h`):
+
+| Value | Name | Value | Name | Value | Name |
+| --- | --- | --- | --- | --- | --- |
+| 0 | INT | 5 | CUTOFF | 10 | NOTE |
+| 1 | PCT | 6 | DB | 11 | ONOFF |
+| 2 | BIPCT | 7 | SEMI | 12 | OCT |
+| 3 | TIME | 8 | ENUM | 13 | STEPS |
+| 4 | LFOHZ | 9 | BPM | | |
+| 14..22 | EQDB, EQLO, EQMID, EQHI, EQQ, DKCH, DKNOTE, DKRLS, DKHLD (L/RRY's EQ and DUCK; DKHLD is not used since 0.2.19: its id is `TRIM`, an F_DB; DKNOTE's id 106 was the EQ switch in 0.2.24 / 0.2.25, `EQ` ON / OFF; **0.2.25 layout round: a free id again**, label "-", range 0 .. 0: a `SET` is clamped to 0 and a read gives 0) | 23 | FILT (0.2.9: the multimode filter's CUT, a dial step 0..82 shown as its cutoff in Hz / kHz; 0.2.2 .. 0.2.8: the bipolar CUT, 0 OFF) | 24 | FMODE (0.2.9: the filter's MODE, LP LP>BP BP BP>HP HP) | 25 | LOCUT (0.2.14: the reverb's low cut, OFF or its corner in Hz; 0.2.22: from 1000 Hz in kHz) | 32 | TUNEHZ (0.2.22: MASTER TUNE, the value is the frequency of A4 in 0.1 Hz, shown "440.0" with the unit "Hz") |
+
+The editor should show the value with the unit; formatting it exactly like the device does
+is not required.
+
+## v2: the patch slots (the commands' historical name: user presets)
+
+**0.2.17 (owner, 2026-10-15): ONE list of 128 patch slots, filled by the factory.** Slot `i` holds **a saved record if one was written, else the factory sound at browse position `i`** (the sort category, engine, name of `docs/PATCH_NUMBERS.md`, `layout.json` `BROWSE`: `[engine, factory index]` per slot; slot `i` is "#i+1"). Nothing is written for the factory ones (a virtual fallback: a fresh or erased unit reports the 128 factory sounds). There is no "user patch" and no "factory patch" on the wire any more, and **no command lists free places**: every slot is occupied and every slot can always be written. The commands keep their ids and frames inside this firmware generation (an editor of 0.2.16 keeps working, it just sees 128 occupied slots and never meets a refusal for room):
+
+- `UP_LIST`: every slot is reported **used = 1** with the engine and name of what it holds now (its saved record's, or the factory sound's); the category bytes follow as before (the slot's own: its record's, or the factory sound's); then, **new in 0.2.17, one SAVED byte per listed slot**: 1 = the slot holds a saved record (RESTORE applies), 0 = it holds its factory sound. A unit before 0.2.17 sends no SAVED bytes (an editor reads `saved = used`).
+- `UP_GET`: the slot's sound: a saved record as before, or a factory sound's values (the engine's EDIT defaults and the sound's own pairs, its TRIM (0.2.19; until 0.2.18 its LEVEL) and its arp / chord keys; no pattern: 16 × (0, 0)); after the category, **new: one SAVED byte** (as in `UP_LIST`).
+- `UP_LOAD`: loads the slot's record, else its factory sound (the engine changes as the device's PATCHES knob changes it), rc 0; rc 1 only for a slot past 127.
+- `UP_STORE` and `UP_PUT` **overwrite the slot** (what it held is gone; a saved record is replaced, a factory sound is shadowed by the new record until RESTORE); the selected part plays that slot afterwards (`UP_STORE`), as after the device's hold-SAVE. rc 2 only when the unit plays and does not stop, or the flash fails.
+- **`UP_ERASE` of a slot is RESTORE**: the saved record is removed and the slot's factory sound comes back (a part that played the record plays the factory sound); a slot that holds its factory sound already answers rc 0 and writes nothing (not even a transport stop). rc 2 when the unit plays and does not stop, or the flash fails. There is no restore-all command: an editor restores every slot whose SAVED byte is 1, one `UP_ERASE` each (the device's own RESTORE ALL is on SAVE > TOOLS and writes chunk by chunk).
+- **INFO tag `58 01 lo hi`** stays: the number of slots, 128 (a data byte holds 127 at most, `UP_LIST`'s "total slots" says 127). **Backup and restore carry the saved records only**: since cloud plan job A (caps bit 5) one record at a time (id 40 and the slot, "Patch records in the archive"), before it the sixteen physical chunks (ids 6, 7, 9..12, 27..31, 35..39, gone); a restore puts the records back into their slots, the other slots show their factory sounds. A record's slot number is its identity: after a firmware update a slot that holds no record shows the factory sound at that position in the *installed* firmware, which can be another one (no compatibility is promised before the alpha).
+- The record format (cloud plan job A, `PT_VER` 3): record flag 16 is now `PTF_XB`, the **extension block** ("PATCH_RAW" below), in the place of the retired 2-byte shadow marker of 0.2.15 / 0.2.16; a record holds up to 534 bytes (`PT_WORST`, was 435). A stored chunk of before job A is not read (no compatibility before the alpha).
+- **0.2.19: PATCH_RAW (84)** reads and writes a slot's stored record whole ("PATCH_RAW" below; INFO tag `5A 01`); an editor librarian (patch files, DX7 import, copy / swap) is built on it. Nothing else of this section changed.
+
+The text below is the 1.x protocol text it grew from (Felucca's slots 0..31, the rules for empty slots); where it says a slot is *empty* or *used*, read it with the above in mind.
+
+A user preset = engine (0..NENGINES−1), name (1..12 chars, ASCII 32..126; the device shows it upper
+case), all P_COUNT instrument parameters (v14 each, the same order as `DUMP`), and a 16-step pattern:
+16 × (note 0..127 (0 = rest), flags: 1 accent, 2 slide, 4 tie, 8 | 16 the ratchet − 1 (firmware with `52 01`;
+before, 0: x1, and such firmware drops those bits when it loads the pattern)). Loading one applies the engine and
+the parameters of the sound, as a factory preset (the track's own parameters, the steps and LEN stay; see
+"Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; on the device SAVE > PHRASES
+lists it as "U07" and loads it, with the stored LEN (at most 16), DIV, SWING and GATE. The slots are
+numbered 0..31 (Felucca's device showed U01..U32). **L/RRY's patch store has the slots 0..127** (next paragraph); the 0..31 here and in the three rules below (`UP_LIST`, `UP_PUT`) are Felucca's.
+
+**L/RRY (2026-10-12; 0.2.15, 0.2.17): the PATCH store.** Slots 0..127 (128; `UP_LIST`'s "total slots" byte is 127, the most a data byte holds:
+the slots are all there; the real count is INFO's `58 01 lo hi`: 128). The slot is one 7-bit
+byte. **Every one of the 128 slots can always be written**, whatever the other 127 hold (the biggest record is 534 bytes since cloud plan job A (the extension block, up to 102 bytes; 0.2.19: 434, 0.2.15: 435), 6 fit a chunk,
+the store has 22 chunks); there is no size rule and no 'full'. `UP_PUT` / `UP_STORE` answer rc 2 only when the unit plays and does not stop, or the flash
+fails (0.2.15 and 0.2.16 refused a new patch with all 128 stored; 0.2.14 and before with 48: such an editor read the capacity from `58 01` or assumed 48). Flash (before cloud plan job A, which has 22 chunks and may move the geometry again): sixteen storage objects (`OBJ_PATCH0..5`, A/B pairs at
+0xC8000..0xCDFFF, 0xDC000..0xDFFFF, and 0x9F000 / 0xFE000; `OBJ_PATCHX0..9`, ids 33..42, 0xA6000..0xB9FFF) hold sparse records (only the
+values that differ from the engine's INIT; an FM6 sound carries its patch inside the record; `upreset.c`); a chunk's payload is at most 3,584
+bytes (it ends at sector offset 0xF00). The unit keeps no copy of the chunks in RAM, only a directory (name, engine, category per slot).
+**Before cloud plan job A** `BACKUP` ids 6, 7, 9, 10, 11 and 12 were the first six chunks and, with caps bit 4 (`42 01 31`), 27 .. 31 and 35 .. 39 the other ten (ids 32 .. 34
+lay between them and stayed empty); a chunk was sent as its live records (length 0: empty). **Since job A (caps bit 5, `42 01 63`) those ids are gone** (GET and PUT answer rc 1, the plain LIST
+does not list them) and a patch travels alone as a logical record: "Patch records in the archive". The web editor's file is "version 5"
+then; versions 1 to 4 (the chunks) are still read, but their patches are not restored (they are of the old record and chunk format); id 8, the old FM6
+patch bank, stays empty; an archive of Felucca's banks is refused.
+
+- `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 32: count 0, no entries; L/RRY: start ≥ 128, the slots are 0..127).
+- `UP_GET` of an empty slot has the same shape with used 0, engine 0, name "" and all values 0.
+  Values come back in the current parameter order, inside their ranges.
+- `UP_PUT`: rc 1 for a slot ≥ 32 (L/RRY: ≥ 128), an engine ≥ NENGINES, a name that is empty, longer than 12 or has
+  bytes outside 32..126, or an incomplete or oversized frame. Values are clamped to their ranges for that
+  engine. A note with flag 4 is stored as a tie (note 0); flags on a rest are dropped.
+- **DRUM** (engine 10) was PHYS's MODEL 4 (DRUM) before 1.0. A record of PHYS with E1 (MODEL) = 4,
+  stored then or sent by `UP_PUT` from an older editor, is the DRUM engine: the device rewrites it (engine
+  10; E1..E8 {MODEL, TUNE, TONE, DECY, SNAP, ACC, KICK 0..127, PERC 0..127} become {KIT = PERC / 32, TUNE,
+  TONE, DECY, SNAP, ACC, KICK 0 PUNCH / 1 ROUND (old ≥ 64), DRV 0}), and `UP_GET` / `UP_LIST` give it so.
+  Projects do the same. PHYS's MODEL is 0..3 (MODAL STRING MEMB SYMP) now.
+- **SAMPLE SET 4** was PERC, the General MIDI drum kit, until 1.0.2. A record of SAMPLE (engine 4) with E1 (SET)
+  = 4, stored then or sent by `UP_PUT`, is the DRUM engine with its default kit: the device rewrites it (engine 10,
+  E1..E8 = DRUM KIT's {0, 64, 70, 64, 64, 100, 0, 0}, the other values and the pattern as they were). Projects
+  and `PRESET` 4 / 4 do the same (a project's track keeps its steps). SET 4 itself stays (`DESC` names it "PIANO":
+  an alias, as SET 1; a `SET` of 4 lands on 0), and USR1..USR3 stay 5..7; GRAIN's SRC 4 plays PIANO.
+- **DRUM KIT 1..3** were HAND, CYM and H+CYM until 1.0.4 (STD with a conga / claves, a cymbal, both). Since 1.0.5
+  they play the VA kits 66, 10 and 77, and a record holding one loads as that kit: `UP_GET` / `UP_LOAD` give KIT 6, 5
+  or 8 (the record itself is not rewritten). Projects, motion events and `SET` do the same.
+- `UP_STORE`: name "" stores with the automatic name the device uses (engine name + slot number,
+  "ANALOG 07"). rc 1 for a bad slot or name.
+- rc 2 = the flash write failed or there is no flash. A failed flash write keeps the previous
+  record in RAM and flash, including its name. Without flash, a valid change is RAM-only until power-off.
+  (`UP_PUT` / `UP_STORE` / `UP_ERASE` stop the transport first, see "Saves while playing"; a device
+  that cannot stop it in 100 ms answers rc 2 and writes nothing.)
+- Frames stay below 640 bytes (`UP_PUT` is 5 + 1 + 1 + 13 + 2 × P_COUNT + 32 + 1, + 18 with the category).
+- **Categories (1.2, Discussion #90).** A user preset has a sound category: 0 none, 1 BASS, 2 LEAD, 3 PAD, 4 PLUCK,
+  5 KEYS, 6 DRUM, 7 FX, 8 OTHER (append-only; the device's PRESETS > LIST filters by it, its NAME screen sets it).
+  `UP_LIST` sends one byte per listed slot after all the slot entries (0 for an empty slot); `UP_GET` ends with it
+  (after kind 0, or after kind 1's 16 bytes). A record saved without one (before 1.2, or by an editor that sends none)
+  reports its engine's: 6 DRUM for DRUM and SLICE, else 8 OTHER. `UP_PUT` takes it as one byte after the kind and its
+  16 bytes (send kind 0 and 16 zeros for a note pattern); 0 stores none, 9 or more is rc 1. An older editor reads up to
+  where it knows and ignores the rest; firmware before 1.2 rejects an `UP_PUT` with the category (rc 1), so send it
+  only to a device that answers `UP_GET` with it. The device keeps it in a byte of the record no value uses (the
+  record's layout is unchanged; older firmware keeps it). The factory presets' categories are the device's
+  (`src/category.c`), not sent.
+
+**On the device (0.2.17):** SAVE > PATCHES: KNOB 1 steps the 128 slots and loads each, KNOB 4 RESTORE (a turn right asks); hold SAVE anywhere: "OVERWRITE #12 <name>?", the slot the sound came from, KNOB 1 picks another, OCT + writes (the sound keeps its name; the device has no rename). RESTORE ALL is on SAVE > TOOLS. MIDI program change n loads slot n.
+
+**Flash** (`firmware/src/upreset.c`): two storage objects (`OBJ_UPRESET0/1`, A/B sector pairs at
+0xDC000..0xDFFFF), 16 records of 192 bytes each, behind a bank header (magic "UPB1", record size,
+slot count; a mismatch reads as an empty bank). (Felucca's; L/RRY does not read these banks.) A record keeps its layout version (versions 1..5 are read; another: empty)
+and the P_COUNT it was stored with; another count is mapped by count (last 8 values = P_E0..P_E7, the
+first ones = P_LEVEL.. in order, missing ones = defaults). Versions 4 (a note pattern) and 5 (a drum grid)
+store each value as one byte, value + 64, so P_COUNT can reach 127; versions 1..3 stored 16-bit values.
+The wire format is unchanged: `UP_GET` / `UP_PUT` still carry v14 values, and `UP_PUT` now answers rc 1
+for a value outside −64..127. P_COUNT was 53 (P_E0 45) until the SLICER
+parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49; then
+the twelve matrix parameters (ids 49..60): P_COUNT 69, P_E0 61. An editor takes both from `INFO`;
+records stored with 53 load with the SLICER off and every matrix slot off, with 57 with every slot off. The
+twenty FM operator parameters (ids 61..80) went in before P_E0 after that: P_COUNT 89, P_E0 81. Records stored with 69 load with
+those at their defaults, which change nothing. Then the chord keys (ids 81, 82): P_COUNT 91, P_E0 83; records
+stored with 89 (or 69) load with CHRD OFF and VOIC CLOSE, their engine values at 83..90. Then the DRUM lane levels
+(ids 83..90): P_COUNT 99, P_E0 91; records stored with 91 (1.0.x) or fewer load with every lane at 127 (100 %), their
+engine values at 91..98.
+
+## v5: the drum grid
+
+A DRUM track (engine 10) is edited on the device as a grid of 8 lanes × the steps (SEQ > STEP). The
+grid lives in the steps themselves, so every engine has it:
+
+- **Hits.** Each step has a lane mask `hit` and an accent mask `acc` (bit l = lane l, `acc` only on
+  lanes that hit). The lanes and the General MIDI note each plays: 0 KICK 36, 1 SNARE 38, 2 CLAP 39,
+  3 HAT CL 42, 4 HAT OP 46, 5 TOM 45, 6 RIM 37, 7 BELL 56 (a VA kit plays its own piece on each: KIT 66 a conga
+  on lane 5, 77 claves on lane 6, 10 and 77 a cymbal on lane 7). A NOTE step plays its notes and then its hits, on any engine (DRUM strikes its
+  lanes, a synth plays the pitches); an accented hit at velocity 127, the others at
+  the step's velocity (0 = 96). A TIE or REST step plays no hits.
+- **On the wire** (after `vel`): `hit & 127`, `acc & 127`, then `(hit >> 7) | (acc >> 7) << 1`. A
+  `STEP_SET` / `TRACK_STEP` of 8 step bytes (an editor of before v5) leaves the step's hits as they are;
+  send `0, 0, 0` to clear them.
+- **Notes on lanes.** A step's notes keep playing as before; the device shows each note on the lane
+  it strikes (GM 35..81, the others folded into their octave of 36..47: a low tom 41 on TOM, a crash 49 on
+  BELL). When the device edits a lane of a step, notes on that lane become the lane's hit. Patterns
+  loaded on the device into a DRUM track (SAVE > PHRASES, e.g. 12 BEAT), and DRUM tracks of projects saved
+  before the grid, get their lanes' own notes as hits (the same notes and velocities play).
+- **Sound loads never convert steps** (as before): switching a track to or from DRUM keeps its notes
+  and hits.
+- **User presets.** A user preset stored from a DRUM track whose first 16 steps strike a lane holds a
+  16-step grid instead of a note pattern (record version 3; version 5 with byte values). `UP_GET` gives its low 7 bits in the 16
+  (note, flags) pairs (hits, accents), then kind 1 and 16 bytes of bit 7s (bit 0 hits, bit 1 accents);
+  a note pattern ends with kind 0. `UP_PUT` with kind 1 and the 16 bytes stores a grid (accents only on
+  hits); without an extension, a note pattern as before. If an extension is sent, it must be
+  exactly 17 bytes: kind 0 or 1 followed by 16 bytes (kind 0 ignores those bytes).
+  Unknown kinds, truncated extensions and extra bytes are rejected without changing the slot (1.2: one byte after
+  them is the category, below).
+  Firmware before v5 shows a grid record as empty.
+- **Projects** in v5 used format 5 ("FUN5"): 10-byte steps and 40 reserved bytes per track.
+  FUN6 retained those fields and added the song chain (v6 below); FUN7 is current (v7 below). Older formats
+  are converted on load.
+
+## Scope 2: the extension slots (cloud plan job I; INFO tag `59 01 NX`)
+
+The cloud plan's 15 stored values that have no old parameter id (TWIN ROUTE, LINK, KEY TRK 2, ENV 2, LFO 1, LFO 2; SUB LEVEL, OCTAVE, WAVE, HARMONICS; CYCLE MODE, RISE, FALL, CURVE, SYNC) live in each part's **extension slots** (`ext.h`, `XV(t, k)`; wide id 128 + k in the patch store). The editor protocol reaches them with **scope 2**: `id` is the slot number 0..NX−1 (**1.1: NX = 28**: X0..X26 are used, X27 is spare (it held the KEY OFFSET for a while, removed: see TRANSPOSE below); the new slots 15..26 are listed in "1.1: DEST cards, LFO LEVEL, SPACE, preselection" below). An editor offers them only when INFO has tag `59` (a unit without it has no scope 2 and does not answer).
+
+| command | with scope 2 |
+| --- | --- |
+| `GET` scope 2, id | `2, id, v14` of the selected track's slot |
+| `SET` scope 2, id, v14 | the value is **clamped to the slot's descriptor** (`DESC`) and stored through the setter the knobs use; the reply is `2, id, v14` after clamping. A slot with a fixed range (X15) keeps its value. TWIN **LINK** (slot 1) runs `twin_link_set`: CUTOFF 2 (id 106) is converted between OFFSET and CUTOFF with filter 1's knob, so a SET of LINK also moves id 106, which the unit then pushes as `CHANGED` scope 0 |
+| `DESC` scope 2, id | `2, id, fmt, min, max, def, label, unit` and an enum's names, as for scope 0. CYCLE RISE and FALL (slots 11, 12) answer the note-value descriptor while CYCLE SYNC (slot 14) is on (`fmt` 0, 0..127; `layout.json` `XSYNC`) |
+| `CHANGED` push | `2, id, v14`: a change on the device, coalesced like scope 0 (each slot at most every 20 ms, the latest value), about the selected track; the editor's own `SET`, its `TRACK_PARAM` and its `PRESET` are not echoed (after a `RELOAD` or a `PRESET` read the slots again) |
+| `TRACK_PARAM` track, id, [v14,] **scope** | a scope byte **last** (3 bytes: a read, 5 bytes: a write; 2 and 4 bytes are the old forms and mean scope 0) of 0 or 2. Scope 2 reaches slot `id` of **that** track (the other part too), clamped like `SET`; the reply is `track, id, v14` and the scope byte again. A scope byte other than 0 or 2, an id past NX−1 (scope 2) or a track past the last gets no reply. `TRACK_CHANGED` stays the mixer's (LEVEL, PAN, MUTE): the slots of a part that is not selected are not pushed |
+
+- `DUMP`, `UP_GET` and `UP_PUT` stay at P_COUNT (127) values like End B: the 15 slots are **not** in them. An editor reads them with `GET` / `TRACK_PARAM` scope 2 (NX requests a part) after a `DUMP`, a `RELOAD` or a `PRESET`. The librarian uses `PATCH_RAW`, which carries the extension block whole.
+- `SET` and `TRACK_PARAM` of **TWIN TYPE** (scope 0, id 43, `P_TWTYPE`) run `twin_type_set`: COMB (6) is refused on WAVE and PHYS (the reply holds the unchanged value), and entering or leaving COMB gives CUTOFF 2 (id 106) and RES 2 (id 25) the new kind's defaults, which are pushed as `CHANGED` scope 0 for the selected part (read them back for another part). CUTOFF 2 and RES 2 keep the range of all their meanings in `DESC` (`layout.json` `TW` holds the editor's: OFFSET, CUTOFF, TUNE, RES, FDBK).
+- Ids 25, 26, 43, 101 and 106 are RES 2, DRIVE, TWIN TYPE, BLEND and CUTOFF 2 since cloud job B (they were ROOT, SCALE, ALLOCATION, ANALOG's filter TYPE and the DUCK NOTE).
+- `layout.json` (cloud job I): `NX`, `XW_BASE`, `XID` (slot numbers by name), `XTP` (the NX descriptors; 28 since 1.1), `XSYNC`, `TW`; `MD` has `CUT2 RES2 DRIVE BLEND SUBLVL S_CYCLE`. A page id of 128 + k (when the unit's pages use them) is slot k, scope 2.
+
+### 1.1: DEST cards, LFO LEVEL, SPACE, preselection (firmware owner round of 2026-10-25)
+
+**Extension slots 15..26** (wide id 128 + k; scope 2 id k; every descriptor from `DESC`; the stored label is a key, the words are the card names below). NX is 28 (`59 01 28`), `EXT_P_LEN` 156. The patch record, a multi and a project grow by 12 bytes of extension values (a multi: one byte each, +12 a part; a project: +12 a part; the patch record's extension block: up to 24 bytes more when every slot is off its default; `up_rec_t.xz` 28 bytes, `XB_BLOCK_MAX` 126). Their tags in the morph: never morphed or rolled (`T_EX`).
+
+| slot | wide id | card name (page) | meaning | range, default |
+| --- | --- | --- | --- | --- |
+| 15 | 143 | SATURATION (AMP ENV DEST K3) | AMP ENV to SATURATION | -64..+63, 0 |
+| 16 | 144 | FILTER BLEND (FILTER ENV DEST K2) | FILTER ENV to FILTER BLEND | -64..+63, 0 |
+| 17 | 145 | FILTER DRIVE (FILTER ENV DEST K3) | FILTER ENV to FILTER DRIVE | -64..+63, 0 |
+| 18 | 146 | MULTI RES (FILTER ENV DEST K4) | FILTER ENV to MULTI RES | -64..+63, 0 |
+| 19 | 147 | TWIN CUTOFF (CYCLE ENV 2/2 K2) | CYCLE to TWIN CUTOFF | -64..+63, 0 |
+| 20 | 148 | PAN (CYCLE ENV 2/2 K3) | CYCLE to PAN (no effect in DUEL: hide the card as the unit does) | -64..+63, 0 |
+| 21 | 149 | PITCH (CYCLE ENV 2/2 K4) | CYCLE to PITCH | -64..+63, 0 |
+| 22 | 150 | TWIN RES (LFO 2 DEST K2) | LFO 2 to TWIN RES | -64..+63, 0 |
+| 23 | 151 | MULTI MODE (LFO 2 DEST K3) | LFO 2 to MULTI MODE | -64..+63, 0 |
+| 24 | 152 | FILTER BLEND (LFO 2 DEST K4) | LFO 2 to FILTER BLEND | -64..+63, 0 |
+| 25 | 153 | LEVEL (LFO 1 TRIGGER page, K4) | LFO 1's master depth | 0..127 (F_PCT), default 127 = 100 % = the LFO as it was |
+| 26 | 154 | LEVEL (LFO 2 TRIGGER page, K4) | LFO 2's master depth | 0..127, default 127 |
+| 27 | 155 | STRUM (CHORD K3) | 1.1 item 144: the time between the tones of a chord one key or MIDI note plays, lowest first; 0 = OFF (all at once, the card says OFF). Stored with the patch (it was the KEY OFFSET for a while, removed 2026-10-27, then spare). Hidden where it cannot act: CHORD TYPE (id 81) OFF, VOICE not POLY, or the arp playing (ARP MODE not OFF, unless MODULES ARP OFF, or SEQ OFF for its SEQUENCE mode); `layout.js strumWhy` | descriptor `STRUM`, fmt 0 (F_INT), 0..100, unit `ms`, default 0; learnable (MIDI LEARN, `MAP_SET`: 0..127 over 0..100) |
+
+The depth is added with the matrix's units (`MX_AMT`, +63 acts as 64): AMT 64 at a full source moves the destination by its whole range, as a matrix slot does (these cards are **virtual matrix routes**, `mod.c VR`, with the same source value, slew and per-block write; they use no slot). Hide rules, as the unit's: slots 16, 17, 19, 22, 24 hide while TWIN TYPE (id 43) is OFF (0); slot 20 hides in DUEL (output mode SPLIT); slot 15 and the TIMBRE cards (id 7 and LFO 1 DEST's, as before). FILTER ENV MULTI CUTOFF is id 114 (`E2FLT`); LFO 2 DEST K1 TWIN CUTOFF is slot 5 (X_LFO2, the same stored value as the TWIN CUTOFF MOD page's LFO 2 DEPTH; the unit's DEST page names it TWIN CUTOFF); AMP ENV DEST K1 PITCH is id 6 (`ED_PIT`), K2 TIMBRE id 7 (`ED_SHP`), K4 ENV SYNC.
+
+**Pages (PAGES[] / `layout.json` regenerated by `tests/editordump.c`):** AMP ENV DEST = PITCH, TIMBRE, SATURATION, ENV SYNC. FILTER ENV DEST (title `ENV 2 DEST`) = MULTI CUTOFF, FILTER BLEND, FILTER DRIVE, MULTI RES. CYCLE ENV 2/2 = CURVE, TWIN CUTOFF, PAN, PITCH. LFO 1 DEST unchanged (PITCH, MULTI CUTOFF, TIMBRE, AMP). LFO 2 DEST = TWIN CUTOFF, TWIN RES, MULTI MODE, FILTER BLEND. LFO 1 TRIGGER and LFO 2 TRIGGER (titles `LFO 1 TRIG`, `LFO 2 TRIG`) K4 = LEVEL. MULTI FILTER 2/2 K4 (the LFO 2 depth to the multimode cutoff) is gone.
+
+**TRANSPOSE is the patch's (1.1, owner 2026-10-27; replaces the KEY OFFSET of slot 27, which is gone).** The one pitch setting of a patch is TRANSPOSE, scope 0 id 28 (`TRANS`, label key `TRN`, shown TRANSPOSE), -24..+24 semitones, default 0. It is the **sound's**: a sound load (a factory sound, `UP_LOAD`, `PRESET`, a patch from the librarian) sets it (every factory sound: 0), `UP_STORE` and `PATCH_RAW` carry it as the record's value of id 28 (the record always had that byte; until now a load skipped it), the load's undo swaps it back. A multi and a project store it per part as before. Where a key becomes a note: note = 53 + key + 12 x OCTAVE + TRANSPOSE, then the global OFF-SCALE rule, then 0..127 (keys, the arp's held keys, MIDI OUT; not the sequencer's stored steps nor MIDI IN). The unit shows it on VOICE 1/2, K4 (MODE, PRIORITY, DETUNE, TRANSPOSE; while PRIORITY and DETUNE are hidden the card moves left with the others); the CHORD page is CHORD and VOICING only. Slot 27 is spare: descriptor `-`, range 0..0, read by nothing; `INFO` is unchanged (`59 01 28`). The id 27 of scope 0 is, as before, KEY TRK.
+
+**Retired depth ids (still in P_COUNT, never read by the engine any more, `SET` accepted and ignored):** 5 `ED_FLT` (AMP ENV to MULTI CUTOFF), 115 `E2SHP` (FILTER ENV to TIMBRE), `L2PIT`, `L2FLT`, `L2SHP` (LFO 2 DEST's old cards, ids 116..118). An editor must not offer them. The matrix still reaches the destinations (CUT, SHP, PITCH). A retired value in a sound that loads (a factory or stored patch, a multi, a project) is **moved into the first free matrix slot with the same source, destination and amount and the id is set to 0** by the unit as it loads (`mod.c mod_legacy_move`); a read of those ids after a load therefore answers 0. Matrix destination 37 (`E2SHP`, FILTER ENV TIMBRE) is no longer offered (like a removed destination: the id stays, a stored route plays nothing).
+
+**Matrix destination 56 `SPACE`** (`N_MDST` index 56, name SPACE; MDST_ORDER puts it after REV, before the bus values): the instrument's one SPACE value (PERFORM K2 / MIXER K3, -100..+100). Each part's routes add an offset to it (a bipolar source swings +-100 at AMT 63, a unipolar one adds 0..+/-200 at AMT 64); **the offsets of both parts add in every mode, including DUEL** (SPACE is one value; DUEL has no width part). The DEST line reads "DEST: SPACE" and the second line "SHARED: BOTH PARTS ADD". The change is smoothed by the SPACE follower (at most 0.25 of a SPACE step a block), so a fast LFO is smoothed, a slow one passes. `MD_N` is 57. Category and order in the editor's list: with the global effects (after REVERB SEND, before CHORUS RATE).
+
+**MATRIX preselection** (visible; amount 0, so no sound changes): as a sound loads (unit, `UP_LOAD`, `PRESET`, a project or multi restore) every empty slot (SRC OFF, DST OFF, AMT 0) is given the next pair of this list that the sound does not already hold in any slot: 1 AFTERTOUCH to SATURATION, 2 AMP ENV to REVERB SEND, 3 LFO 2 to SPACE, 4 CYCLE to LFO 1 RATE, 5 RANDOM to PAN, 6 KEY TRACK to AMP ENV RELEASE, 7 VELOCITY to AMP ENV ATTACK, 8 MOD WHEEL to LFO 1 PITCH DEPTH. A used slot is never touched. The editor sees the pairs in `DUMP` / `GET` of the matrix ids after the load (SRC/DST set, AMT 0). A `UP_GET` of a stored record shows what was stored (a sound that was saved before is filled only when it loads).
+
+**New / INIT sound:** FILTER ENV to MULTI CUTOFF (id 114) is +40 (the `INIT SOUND` action and an INIT from the editor); a loaded sound keeps its value, so the descriptor default of id 114 stays 0.
+
+### 1.1: LOCK TARGETS past 127 (build 1.1.0-test2; INFO tag `4C 01 03`, bit 1)
+
+Owner's rule: the sequencer's parameter locks (and automation events) offer EXACTLY the matrix destination list. Until now a record's id was a 7-bit P_ id, so the destinations with no P_ id of their own could not be locked. A record is still 3 bytes (place, param, value) in every store (project, multi, MOTION); nothing about the disk layouts changed.
+
+- **Target id (0..255).** 0..126 are the P_ ids as before. The place byte is track x 64 + step (two parts, so only bit 6 is the track); **bit 7 of the place byte is the EXTENDED flag** and the id's 7 bits then mean target 128 + id. 128..155 are the extension slots by their wide ids (scope 2, `XW_BASE` + slot): the only one the matrix offers is SUB LEVEL (slot 6, target 134). 192 + d are the VIRTUAL targets of the matrix destinations that have no stored value: d is the destination number: 1 PITCH (193), 3 TIMBRE (195), 4 VOICE AMP (196), 39..45 CHORUS RATE, CHORUS DEPTH, DELAY FEEDBACK, DELAY MOD DEPTH, DELAY MOD RATE, REVERB SIZE, REVERB DAMP (231..237), 56 SPACE (248). Every other destination keeps the P_ id it had (`mod.c mod_lock_id`, one table for the unit and the lock list; the removed destinations are not offered).
+- **A virtual target's value is an AMOUNT**, -64..+63, shown like a matrix amount (the descriptor is a signed percent card, label AMT; default 0 = no offset). It is added as a route from a full-size source at that amount (`MX_AMT`: +63 acts as 64 = the destination's whole range, the same units as the matrix). PITCH, TIMBRE: added to the voice sums. VOICE AMP: a negative amount lowers the level (-64 = silence), a positive one does nothing (a voice cannot be made louder). The bus values and SPACE: **an OFFSET added to the global value** while the step plays, in the same way the matrix adds it (both parts' offsets add in every mode, SPACE through the SPACE follower's glide); the next step puts the base value back. A lock sets the amount only on the step (when the step plays); an automation event holds it until another one. Base value: 0. Nothing is stored in the sound, and a stop puts everything back.
+- **MOTION replies** (ops 5..8, the query with the kinds): `count` x (step, id low 7 bits, v14), then `count` x kind (0 automation, 1 lock), then (new, with INFO `4C` bit 1) `count` x high bit (0 a P_ id, 1 target 128 + the id). Set / delete for a target past 127 use ops 9, 10, 11 (track, op, step, id low 7 bits, high bit 0 / 1, then v14 for 9 and 11); ops 3, 4, 5 keep working for ids 0..127. The reply buffer is 800 bytes now (op 8 with 128 records is 780).
+- **A target is only offered when the matrix offers its destination** for the part now (`mod_lock_ok`: an unused or inert engine slot, the INSERT values while it is OFF, the TWIN values with TYPE OFF ...); a record already stored for one stays and plays.
+- **On the unit**: SEQ > PARAMETER LOCKS' + ADD LOCK picker (KNOB 3) steps through the same list in the matrix's order; the rows and cards name the destination as the matrix does and show the amount as a signed percent. On the piano roll a held step and a knob lock the four cards of the page shown last, as before (the virtual targets have no card there; they are reached from PARAMETER LOCKS and the editor).
+- **The editor** has the PARAMETER LOCKS tab (after SEQ, shown when INFO has tag `4C`; `editor/lockview.js`, model `editor/locks.js`, calls `Unit.readLocks / putLock / deleteLock` in `unit.js`, encodings `proto.js motionSetArgs / motionDeleteArgs / parseMotion`). It reads the selected part's records with op 8 (INFO tag `41` present, capacity 128) or op 7, every 2.5 s while the tab shows and after a RELOAD (the unit does not push records). A row is LOCK or AUTO, its step (1-based), the destination named as the unit's DEST line says it, and its value: an AMOUNT (signed percent, -64..+63) for the virtual targets, else the parameter's own value (E1..E8, the INSERT's A B C and the TWIN values by the part's descriptors). Value and step change through the ordinary cell (slider or typed number); a step change is a delete plus a set on the new step (the unit has no move; a step that already holds the destination is refused by the editor); DELETE is op 4 / 10; the add row (step + destination from the matrix groups, only what `dstOffered` allows) sets a LOCK at the sound's own value (0 for an amount) with op 5 / 11. The destination to target table is `locks.js targetOfDst` (the firmware's `mod_lock_id`; the LFO depths, EQ gains and FILTER ENV TIMBRE are not lockable). rc 2 shows the unit's words, PARAMETER LOCKS FULL (128 records shared by the tracks, `MOTION_MAX`). The editor does not change a record's kind (LOCK <-> AUTO is OCT+ on the unit). The simulated unit (`mockunit.js motionCmd`, seeded in `demo11.js`) answers ops 1..11 with the same rules.
+
+### BYPASS (built in 1.1.0-test1)
+
+**Status: built in the firmware (src/editor_bypass.c, core.h byp_m / byp_sh; INFO tag `5B 01 01`). Built as below, with these choices: a bypassed MULTI FILTER is not run (the filter's own edge fade); a bypassed TWIN FILTER keeps running and its output is swapped for its input after DRIVE and BLEND (DRIVE, BLEND and ROUTE keep acting, and the unit shows the TWIN CHAIN page's values as usual); a bypassed LFO / FILTER ENV / CYCLE reads 0 and its matrix routes and DEST cards are skipped; CHORUS and DELAY fade their input (and the delay its return and feedback) over 8 blocks, REVERB fades out over one block and its buffers are cleared; STEREO MASTER and COMPRESSOR read as neutral so their own fades take them out. Nothing in the firmware refuses command 89 while writes are refused (SET has no such gate in this firmware). Original text of the proposal, kept: The editor (`editor/modbypass.js`, `unit.js`, the simulated unit in `mockunit.js`) is built to it and shows the buttons only when the unit says it has it (INFO tag below).** Owner's rule (HANDOFF_V2 item 61a, round 2): bypass is for sound design testing, it is **temporary** (never saved with the patch, no saved value is ever changed, gone after power off; a part's bits also clear when a sound loads into that part, but the shared effect bits stay across sound loads until pressed again), and the unit shows a bypassed module as BYPASS (or its value as zero). It covers the filters, the LFOs, FILTER ENV, CYCLE ENV (**not AMP ENV**: the owner wants none) and the effects.
+
+- **The masks.** Not parameters: no id, no `DESC`, not in `DUMP`, a patch record, a multi, a project, a backup or the morph, and no undo step. RAM only, all 0 at power on.
+  - **One mask per part** (track 0 or 1; tracks 2 and 3 have none), 11 bits, sent as two 7-bit bytes (low, high). A bit set = bypassed. Bits 0..5 are modules: 0 MULTI FILTER, 1 TWIN FILTER, 2 LFO 1, 3 LFO 2, 4 FILTER ENV, 5 CYCLE ENV. Bits 6..10 are the part's effects: 6 SATURATOR, 7 INSERT, 8 EQUALIZER, 9 DUCKING, 10 SENDS.
+  - **One shared mask**, 5 bits (one byte): 0 CHORUS, 1 DELAY, 2 REVERB (the shared buses), 3 STEREO MASTER (BASS MONO and WIDTH), 4 COMPRESSOR. The editor's DRY button sets every effect bit of both parts and the shared mask at once, and clears the same bits again; it has no bit of its own.
+- **When they clear.** A part's mask (its modules and its effects) goes back to 0 whenever a sound loads into that part (`PRESET`, `UP_LOAD`, a browse or step on the unit, `INIT SOUND`, a multi load, a project load). **The shared mask (CHORUS, DELAY, REVERB, STEREO MASTER, COMPRESSOR) does NOT clear when a sound loads** (owner, 2026-10-25): it stays until the owner presses the button again, the unit is switched off, or the editor is closed and opened again (a new editor session starts with its buttons all off in the demo; with a real unit it reads the masks with `0` (GET) and shows a bypass still held, so nothing stays bypassed unseen). A change of the engine, a knob turn, a part selection or a `SET` clears nothing. A load on the unit pushes `RELOAD` as usual, and the editor reads the masks again after every `RELOAD`.
+- **Command 89 `BYPASS`.** `0` (GET) answers `0, lo part 1, hi part 1, lo part 2, hi part 2, shared`. `1, part, lo, hi` (SET a part; part 0..1) answers `1, part, lo, hi` as held (bits above 10 are dropped). `2, mask` (SET the shared mask) answers `2, mask` (bits above 4 dropped). Any other argument list: no reply. Not allowed while the unit refuses writes, as `SET`.
+- **INFO tag** `5B 01 caps` (after `59 01 NX`, before the MIDI MAP tag `4B`, which stays the last one): bit 0 = command 89 exists. A unit without the tag has no bypass; the editor draws no BYPASS or DRY buttons then.
+- **What a bypassed item does** (its values are untouched; only its effect on the sound is switched off, with a short smoothing so there is no click):
+  - MULTI FILTER, TWIN FILTER: the stage passes the sound unchanged (not "cutoff fully open": no filtering, no resonance, no drive of that stage). In PARALLEL the bypassed branch is the plain input; TWIN CHAIN's DRIVE and BLEND keep working as set.
+  - LFO 1, LFO 2, FILTER ENV, CYCLE ENV: the module sends nothing to its destinations: its DEST cards, its matrix routes (the source reads 0, like an unused source) and TWIN's FILTER ENV DEPTH / LFO 1 DEPTH / LFO 2 DEPTH. The module keeps running, so switching it back on is in step.
+  - SATURATOR, INSERT, EQUALIZER, DUCKING: the stage is skipped (INSERT as if its TYPE were OFF, EQUALIZER flat, DUCKING as if its SOURCE were OFF). SENDS: both of the part's sends to the buses are treated as 0. CHORUS, DELAY, REVERB: the bus is skipped (no wet sound; the delay tail and reverb tail stop). STEREO MASTER and COMPRESSOR: the stage is skipped.
+- **What the unit shows.** On every page of a bypassed item every card draws the word BYPASS in place of its value, in the dim grey of a hidden control (the gauge empty); the card still turns, and the value it holds does not change. Where there is no room for a word (a gauge only), the value is drawn as 0. Nothing else on the unit changes; no menu switch.
+- **The editor.** One small BYPASS button in the top right corner of each box (MULTI FILTER, TWIN FILTER, LFO 1, LFO 2, FILTER ENV, CYCLE ENV, SATURATOR, SENDS, INSERT, EQUALIZER, DUCKING, CHORUS, DELAY, REVERB, STEREO MASTER, COMPRESSOR) and a DRY button at the top of the global column. The state is the lit button and the greyed box; there is no second label. Pressing a button sends the changed mask; after a `RELOAD` or its own load the editor reads the masks again.
+- **Replaces** the editor's older BYPASS buttons on the effects cards, which set existing values to their off values and remembered them (so they changed the sound's saved values). `editor/bypass.js` is no longer used.
+
+## Values at the MORPH fader (1.1, item 159; INFO tag `4F 01 1`)
+
+Owner (2026-10-28): "The editor should be updated as well. We should be seeing the actual values of the current sound at the morph setting that we are at." With the tag, **every value of a part that the unit sends is the value as the unit's own cards show it** (`morph.c morph_view`: the MORPH fader's blend of End A and End B; where the morph moves nothing, the stored value): `GET` and `SET`'s reply (scope 0 and 2), `DUMP`, `TRACK_DUMP`, `TRACK_PARAM`'s reply (scope 0 and 2), `CHANGED`, `TRACK_CHANGED`, `TRACK`'s level. The ids 0..126 and the extension slots (wide ids 128..155) alike; the globals (scope 1) are not morphed and stay as they are. A value a MOTION record drives at the moment is sent in `DUMP` / `TRACK_DUMP` as its saved value, as before.
+
+- **Pushes.** A fader move, a roll (ROLL A / B, ROLL, MIDI), an UNDO of a roll or anything else that changes what a card shows is pushed as a change of that value: `CHANGED` for the selected part; with `WATCH` bit 2 (value 4; `WATCH 7` = all three) `TRACK_CHANGED` for every value of the other shown part (an extension slot with the fourth byte 2). Coalesced as before (one push of a value per 20 ms, at most 4 frames a pass), so a fader sweep reaches the editor as a stream of the values that changed. AMOUNT alone changes no shown value (it sizes the next roll).
+- **Writes** (`SET` scope 0 / 2 of the selected part, `TRACK_PARAM` of any part) take the value **as shown** and write it as the unit's knob writes (`editor.c ed_put`, `ui_input.c`): at the fader's B end (127, a live morph) a value the morph can move is set in **End B** (`morph_b_set`, as the knob; "B FULL: 32 VALUES" when the hand-set list is full: nothing changes, the reply shows the value as it stays), and the stored Original is not touched; anywhere else the stored Original is set so that the shown value is the one written (set to it, then moved by the difference between the written and the shown value, up to three tries, as the unit's reset does under a live morph: for a continuous value this is the knob's "the Original moves by as many steps as the shown value"); where the morph moves nothing this is the plain store of before. The reply is the value as shown. (Cloud job G's "the editor writes A at the B end" is replaced; see HANDOFF_V2 item 159 for the open question about switches.)
+- **The stored Original.** `TRACK_DUMP track, 1` sends the stored values (the saved values of MOTION-driven ones) as before item 159; `TRACK_PARAM`'s scope byte **+ 4** (4 = scope 0, 6 = scope 2) reads and writes the stored Original exactly as before item 159 (no End B, no correction; the reply is the stored value and echoes the scope byte as sent). The web editor's librarian uses these when it copies a sound's values into a part, so the copy's Original is the file's.
+- **Saves are unchanged**: `UP_STORE`, `PROJECT` save, `PATCH_RAW`, `BACKUP_*` store and send the stored Original, both ends and the hand-set B values, exactly as before (the shown values are for display only). `UP_GET` sends a slot's stored values (no morph).
+
+## v2: live sync
+
+- `WATCH 1` starts the pushes. Watching ends by itself 3 s after the last request of any kind (send
+  `PING` about every 1 s), on a USB reset, and when the host goes away; `WATCH 0` ends it at once.
+- **CHANGED** (scope, id, v14): a parameter changed on the device (knob, menu, sequencer edit of a
+  `P_*`), not by the editor's own `SET`. Coalesced: each (scope, id) at most every 20 ms, with the
+  latest value.
+- **RELOAD** (engine, preset): the engine, a preset, a user preset or a project was loaded; re-read
+  `DESC` of the engine parameters, `DUMP` and the steps. It is also sent after loads the editor asked
+  for with `PROJECT` load and `UP_LOAD`. After the editor's own `PRESET` and `SET` of G_ENGSEL it is not
+  (firmware with INFO `53 01`, bit 1): the device takes the load as known (the engine, the preset and the
+  parameters the load changed), since the editor re-reads `DUMP` after the reply; a device change still
+  pending at that moment (a load or another track selected on the device, a knob turned) is pushed as before.
+  Older firmware sends `RELOAD` after those too; an editor that skips its own echoes should do so only when
+  bit 1 is clear.
+- **WATCH while watching** (firmware with INFO `53 01`, bit 0): `WATCH 1` (or 3) while already watching on
+  the same USB connection keeps what has not been pushed yet, so a change made just before is still pushed.
+  Older firmware takes everything as known again (re-read `DUMP` after a re-`WATCH` there). `WATCH 0`, the 3 s
+  timeout and a USB reset end watching; the next `WATCH` starts from the values as they are.
+- **STEP_CHANGED** (index): a sequencer step changed on the device (record, clear, step edit,
+  pattern load); not after the editor's own `STEP_SET`.
+- Push frames have the normal header. Accept them at any time, also while waiting for a reply:
+  match replies by cmd (23, 24 and 26 are never replies). The device sends at most a few per
+  ~5 ms pass, and only when its USB send queue has room, so a push never delays a reply.
+
+## v3: tracks
+
+- **Track 4 since 1.0** is a synth part like tracks 1..3: `DUMP` / `RELOAD` / `TRACK` / `TRACK_DUMP`
+  give its real engine byte (power-on: DRUM, preset DRUM KIT, the General MIDI map), and `PRESET`, `SET` of
+  `G_ENGSEL`, `UP_LOAD` and `UP_STORE` work on it; its level is its `P_LEVEL`. The commands are byte for
+  byte as before; only the meaning changed. Firmware before 1.0 had a GM drum track there: engine byte
+  NENGINES, no presets (`UP_LOAD` / `UP_STORE` rc 1), its level the global `G_DRLVL`. Drums are now the
+  DRUM engine on any part: the first C key is the kick (C2 = 36), notes are GM numbers.
+- The globals `G_DRCH`, `G_DRLVL`, `G_DRREV` (ids 24..26: the old drum track's MIDI channel, level and
+  reverb send) keep their ids, and `G_COUNT` stays 27. `G_DRLVL` and `G_DRREV` are inert: `DESC` gives
+  label "-", range 0..0, and no page shows them. Id 24 (`G_DRCH`, never read since 1.0) is `G_RTYPE`
+  since 1.0: the reverb's model, `DESC` label "TYPE", enum ROOM (0) / SPRING (1) / HALL (2, since 1.2) / SHIM (3) / RESO (4) / PLATE (5, since 0.2.14: appended, so the older ids keep their meaning; a `SET` above 5 clamps to 5), on the
+  REVERB page (FX). Id 21 (`G_ENGGO`, unused) is `G_RLOCUT` since 0.2.14: the REVERB LOW CUT, `DESC` label "LOCUT", fmt 25 (`LOCUT`: 0 shown OFF, 1..127 shown as 20 Hz .. 450 Hz, exponential), range 0..127, default 61 (88 Hz), the REVERB page's fourth card (**0.2.22**: 1..127 are 20 Hz .. 2 kHz, exponential, shown in Hz below 1000 Hz and in kHz from there ("1.5" kHz), default **75** = 299 Hz: the ids, the range 0..127 and the fmt number are unchanged, `layout.json`'s formatted values are new); stored and sent like `G_RSIZE`. The power-on value (`DESC` def) of id 24 is HALL since 1.2, ROOM before; a project keeps its own, and
+  projects of formats before FUN7 load it as ROOM. MIDI channel 10 is no longer special (channels 1..4 play
+  tracks 1..4, channels 5..16 are ignored since 1.0.3; with ROUT SEL every channel the selected track).
+- Selecting a track with `TRACK` does not push `RELOAD` (the editor re-reads `DUMP`, the steps and the
+  engine `DESC` itself); selecting one on the device does (`RELOAD` with the new track).
+- Pushes are about the selected track only: `CHANGED` (scope 0) and `STEP_CHANGED` refer to it, and
+  changes to other tracks (live recording from MIDI into another track, `TRACK_*` writes) push nothing.
+- Level and mute are also `P_LEVEL` / `P_MUTE` of the selected track (`SET`); `TRACK_MIX` reaches the
+  others. Presets and user presets change a part's sound but keep its `P_LEVEL`, `P_PAN`, `P_MUTE`.
+- Projects (`PROJECT`) save and load all four tracks, the selection, the song chain and the motion (FUN7;
+  FUN5 added the drum grid, FUN6 the chain). Formats 6..1 are converted; a format 1 project loads into track 1. A project saved before
+  1.0 loads its drum track as track 4 with DRUM's kit (SAMPLE PERC until 1.0.2), its steps kept.
+- Older firmware (no NTRK in `INFO`): one instrument; skip the track UI.
+
+## v4: any track's parameters
+
+- **Finding out:** send `WATCH 3`. v4 firmware answers 3; v3 (0.8) firmware answers 1, does not know
+  cmds 31 / 32 (no reply) and never pushes `TRACK_CHANGED`. `WATCH 1` behaves exactly as in v2 / v3
+  (reply 1, no `TRACK_CHANGED`). Match the `WATCH` reply by bit 0.
+- `TRACK_PARAM` (cloud job I: a trailing scope byte 0 or 2 reaches the extension slots, "Scope 2") clamps like `SET` scope 0: to the range of that parameter; the engine parameters
+  `P_E0..P_E7` to the ranges of that track's engine. A parameter
+  with a fixed range (min = max) keeps its value. A track ≥ NTRK or an id ≥ P_COUNT gets no reply.
+  For the selected track it is the same as `SET` scope 0.
+- `TRACK_CHANGED` is never about the selected track (its changes stay `CHANGED` scope 0). Coalesced like
+  `CHANGED` (each track and id at most every 20 ms, latest value), and not sent for the editor's own
+  `TRACK_PARAM` / `TRACK_MIX` writes. After a selection change (`RELOAD`, or the editor's `TRACK`) the
+  device takes the current values as known.
+
+## Notes for the editor
+
+- **One request at a time.** Wait for the reply, about 10–50 ms, before sending the next, from one queue
+  for every request, keep-alive `PING` included. The device holds one incoming SysEx frame until the main
+  loop has answered it; a frame that arrives before then is dropped whole (no reply). A frame is never
+  taken in part: USB delivers every packet (acknowledged, retried), and a dropped frame leaves nothing.
+  Any frame size up to the largest request (a 256-byte `BACKUP_PUT` / `SMP_WRITE` piece: 306 bytes on the
+  wire, 640 bytes of buffer) is safe at full speed; pacing between bytes is not needed. With a second
+  request in flight (pipelined, or a keep-alive from another thread) the second is lost: no reply, and a
+  following `BACKUP_PUT` / `SMP_WRITE` piece is then refused (rc 1, the offset). Measured on an FM-1 with
+  1.0 over USB: 256-byte pieces one at a time, the next sent from the reply callback, 560 of 560 taken
+  (about 10 ms each); with the next piece sent before the reply, every second piece was dropped.
+- **Following the device.** With v2 firmware, `WATCH` and `PING` (above). Older firmware pushes
+  nothing (no reply to `PING`): poll `DUMP` about every 300–500 ms while the page is visible.
+- **Port.** The device's MIDI port is named "Felucca" (USB 1209:0001). Updates use the same
+  port with other SysEx (the `F0 22 24 35 …` keys, `00 59 …` frames); never send those
+  from the editor. Since 1.0 the same USB device also has an audio input ("Felucca",
+  44.1 kHz stereo; bcdDevice 3.11; since 1.1 44.1 or 48 kHz, the host's choice, bcdDevice 3.21
+  (3.20 with MENU > USB SERIAL OFF)); the MIDI port and this protocol are unchanged, and both
+  work while the computer records.
+- **Global ids.** `G_ROUTE` (id 14, label "ROUT"; on the device MENU > MIDI > MIDI IN since 1.2, up to 1.1.5
+  GLO > SYSTEM ROUT) was a placeholder ("--", range 0..0);
+  since 1.0 it is the MIDI IN routing: 0 "CH1-4" (channels 1..4 → tracks 1..4; what projects stored
+  before. Until 1.0.2 every other channel played the selected track; since 1.0.3 channels 5..16 are
+  ignored: notes, bend, CCs, aftertouch, panic and reset), 1 "SEL" (every channel → the selected track); since 1.2
+  (append-only) 2 "CH5-8", 3 "CH9-12", 4 "CH13-16": channels 5..8, 9..12 or 13..16 → tracks 1..4, the others
+  ignored as with CH1-4, and the keys' MIDI out on the track's channel of that block. `DESC` of id 14 gives range
+  0..4 and the five names; firmware before 1.2 clamps 2..4 to 1 (SEL) when it loads such a project.
+  Neither setting affects this SysEx protocol or MIDI clock. The
+  id, `G_COUNT` (27) and the project format are unchanged; it is saved and loaded with the project like
+  the other globals. The editor shows it under GLOBAL > MIDI. 1.2: the GLO > GLOBAL and GLO > SYSTEM pages are
+  gone; BPM, SWG and CLK (ids 0..2) are HOME > CLOCK's, TUNE (id 3) and ROUT (id 14) are edited in the MENU (AUDIO >
+  TUNE, MIDI > MIDI IN; also MENU settings 22 and 21, below). Their ids, names and storage (the project) are
+  unchanged. **0.2.22: TUNE (id 3) is the frequency of A4 in tenths of a Hz** (fmt 32 `TUNEHZ`), range **4153..4662** (415.3 .. 466.2 Hz, 510 steps), default **4400** (440.0 Hz); a SET / GET carries it as the v14 number it is (4400 = `30 62` after the +8192 offset, no second byte or coarse / fine pair is needed); a stored value out of range (the cents of before) reads as 4400. `G_MIDI`, `G_SYNC`, `G_INFO` (12, 13, 15) are on no page any more (MIDI's value was never read: the
+  SYSTEM page's card showed the USB state; SYNC a placeholder; CPU a reading): the device's MENU > SYSTEM > ABOUT shows (until 0.2.1 the INFO item)
+  the USB state and the CPU load; `DESC` of them is unchanged.
+  **0.2.16: `G_INFO` (15) is the delay's MODE** (`G_DMODE`; label MODE, 0..3: DIGITAL, PING-PONG, RANDOM, OCT UP, cards DIGI, PING, RAND, OCT+; default 0; `GET` / `SET` / `DESC` scope 1 id 15 as every global, saved with the project and a multi,
+  `G_COUNT` 27; a stored value past 3 plays as DIGITAL). 0.2.14 and 0.2.15 had 0 DELAY, 1 RAND, 2 OCT+ here, and the PING-PONG switch on id 26; id 26 is unused now (stored 0, no page), and multi version 4 / project revision 2 refuse older records.
+  **0.2.19: SHIM's PITCH and MOD** use the two globals nothing read: id 26 (`G_FREE26`, the old PING-PONG switch, unused since 0.2.16) is `G_SHPITCH` (label PITCH, 0..2: UP, DOWN, BOTH; default 0) and id 17 (`G_NAME`, a "NAME" card no page showed) is `G_SHMOD` (label MOD, 0..100 %; default 0); `GET` / `SET` / `DESC` scope 1 as every global,
+  saved with the project and a multi, `G_COUNT` stays 27, and an older record holds 0 on both ids, which is the old SHIM (UP, no drift). They are the new `PAGES` entry SHIMMER (GLO, GLOBAL, ids 26, 17, then two empty), the page after REVERB (REVERB is unchanged: TYPE, SIZE, DAMP, LOCUT). The unit shows the page, and its cards respond, only while the global id 24 (`G_RTYPE`) is 3 (SHIM): with another TYPE the page is not in its page cycle
+  and the editor hides the two controls (`layout.js` `ginert` / `shimShown`; the REVERB card of the GLOBAL tab is followed by a SHIMMER card that is shown for TYPE SHIM only). A `SET` of either id is accepted whatever the TYPE (the value is kept and acts when the TYPE is SHIM). `layout.json` `ID` has `G_SHPITCH` and `G_SHMOD`.
+  The delay has two pages in `PAGES`: DELAY 1/2 (MODE, TIME, FDBK, COLR) and DELAY 2/2 (SPREAD id 25, MRATE id 12, MDEPTH id 13, MIX; the labels were RATE and DEPTH until 0.2.17); the DELAY MODE page is gone. In mode 2 or 3 the global id 13
+  (`G_SYNC`, DEPTH) is CHANCE (0..100 %, the same stored value; `layout.json` `DMD.chance` is its descriptor) and id 12 (`G_MIDI`, RATE) does nothing; in mode 0 id 25 (`G_PINGSPREAD`, SPREAD) does nothing.
+  The unit fades them with the mode's card name (`DMD.why`: DIGI, PING, RAND, OCT+; the editor does the same, `layout.js` `gdescOf` / `ginert`; `DMD.full` has the full names, which the editor's MODE list shows). In DUEL (SPLIT) the stored mode is not in force (MODE and SPREAD fade with DUEL); the editor cannot read the
+  output MODE and shows what is stored.
+- **Sound loads and undo.** A load that changes a track's sound (`PRESET`, `SET` of `G_ENGSEL`, `UP_LOAD`,
+  and the same on the device) changes the sound only: the engine and the parameters of the sound. It
+  never changes the steps, nor the track's own parameters: `P_LEVEL` (the mixer level, 0.2.19), `P_PAN`, `P_MUTE` (0, 39, 40), the
+  ARP pages, SCALE and LEN / DIV / SWING / GATE (17..32; not 25..28, which are the sound's: TWIN RES 2 and DRIVE, KEY TRK, and since 1.1 TRANSPOSE)
+  (Felucca: also the SLICER, 45..48; in L/RRY those ids are the sound's filter, since 0.2.2). It does drop the track's recorded
+  motion (the device's SAVE held brings it back). (Before 1.0 a preset also
+  set the arp and replaced the steps with its pattern; a factory preset turned the SLICER off.) The byte
+  layout of every command is unchanged. Patterns are loaded on the device (SAVE > PHRASES) or written by
+  the editor with `STEP_SET` / `TRACK_STEP`.
+  The device keeps one copy of the track from before the last load (any track); SAVE held 0.7 s on the
+  device swaps back what the load changed (the sound; after a SAVE > PHRASES load, the steps and LEN / DIV
+  / SWING / GATE). Loads in a row on one track with nothing changed between them keep the copy from before
+  the first; `SET` (scope 0) within 1.5 s of a load on the selected track counts as part of that load, so
+  an audition (`G_ENGSEL`, then the patch's values by `SET`, the track's own parameters skipped as
+  `UP_LOAD` skips them) and the next one still undo to the state before the first. `PROJECT` load takes no
+  copy.
+- **Saves while playing.** A flash erase silences the audio and stalls the sequencer for a moment. The
+  device refuses its own saves while the transport plays ("STOP TO SAVE"); `PROJECT` save, `UP_PUT`,
+  `UP_STORE`, `UP_ERASE`, `BACKUP_LIST` and `BACKUP_PUT` from the editor stop the transport (the sample commands did too until 0.2.9; now they touch nothing)
+  first (`BACKUP_GET` does not: it answers rc 3 while the transport runs). If it does not stop within 100 ms, no flash operation starts: user-preset commands
+  return rc 2, sample commands a nonzero rc, backup commands rc 3. PROJECT retains its existing reply shape
+  (op, slot, used); a failed PROJECT save gets no reply, allowing the editor to report
+  a timeout instead of confirming the previous used slot. The previous slot is kept.
+  A pending PLAY or SONG start also prevents a device save.
+- **Published samples** (until 0.2.8; no sample slots since 0.2.9). SMP_END repeated with an identical committed header
+  succeeded without another write; a different header was rejected (rc 2) until SMP_BEGIN.
+- **Safety.** `PROJECT` save, `UP_PUT` / `UP_STORE` / `UP_ERASE`, and the tagged preference writes below write flash, and only in
+  Felucca's own storage; never the app or the update area.
+
+
+## v6: song chain
+
+INFO appends CHAIN_ROWS (16) after NTRK. Earlier INFO bytes and command numbers
+stay where they were. No trailing byte means no SONG command: hide its controls.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 33 SONG | op 0 query; op 1 set, count 0..16, count × (slot 0..3, repeat 1..16); op 2 start; op 3 stop | op, rc, count, running 0/1, row 0..15, remaining repeats, count × (slot, repeat) |
+
+A set must have exactly `2 + count × 2` argument bytes. rc 0 = accepted,
+1 = invalid rows (or an empty chain on start), 2 = busy, 3..6 = source slot 0..3
+is empty. Rejected sets keep every previous row. Set edits RAM; PROJECT save
+persists it, PROJECT load recalls it. A stop/start is acknowledged before the
+next audio block; query reports the actual running state. `row` and `remaining`
+are meaningful only while running. Rows always start from 0, with track 1's
+loop as the repeat and transition boundary; the last row stops.
+
+A row takes all four tracks' steps (with their chance) and LEN / DIV / SWING / GATE from its saved
+project slot, retaining the current sounds, mix, ARP, scales and effects. Since 1.2 a row is a section with a slot per
+track (see "1.2: song sections"): ops 0..3 still work, a row of theirs is a section with its four tracks on that slot. The
+four sources are copied before starting, with no flash operation in playback.
+Original editable patterns and timing are restored on stop. Sources are shared
+project slots; overwriting a slot changes its uses on the next start.
+
+STEP_GET / TRACK_STEP and WATCH report the playing source. During chain
+playback, STEP_SET / TRACK_STEP writes, SET / TRACK_PARAM writes to
+LEN / DIV / SWING / GATE and MOTION edits (rc 3) are ignored, returning the current value. Other
+sound and mix parameters remain editable. Recording and panel pattern edits
+also require STOP. Older editors keep working; older firmware gets no SONG
+requests from the new editor.
+
+Projects now write FUN7 (below), the same 3388 bytes in the same A/B sectors. FUN6 has the same size;
+FUN5 (3352 bytes) and FUN1–FUN4 convert with an empty chain, without changing the sample-slot layout.
+A chain row also plays the motion of its source project (events for an FM operator parameter are skipped
+when the track's engine is not the saved one).
+
+## v7: chance, motion, MIDI clock
+
+- **Chance.** Each step has a chance, 0..100 %, as the last byte of the step reply (and the optional last byte
+  of a step write). 100 is the default and what every older pattern holds; 0 means the step never plays. The
+  device rolls once each time a step comes round, for all of it: its notes, its drum hits and a TIE. A failed
+  roll plays nothing and releases what rang before. Chance is saved in projects (FUN7) and in song rows; a
+  user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
+- **Motion** is knob moves recorded per step: 64 events shared by the four tracks. An event is (track, step
+  0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
+  holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the
+  sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
+  33..36 (SAT, CHO, DLY, REV), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
+  83..90 (the DRUM lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). The device records them while the track is armed, playing and selected, from its knobs
+  and from `SET` / `TRACK_PARAM` alike.
+  - `MOTION` with the track alone is the query. `on` 0 keeps the data and stops playing it; 1 plays it. Clear
+    drops the track's events and turns it off; on the device it is undone by SAVE held.
+  - Set: `value` must be inside the parameter's range for that track's engine (and −64..127); a
+    new event when the 64 are used gets rc 2 ("MOTION FULL" on the device), an event that already exists is
+    updated. A set turns the track's motion on. A delete of an event that does not exist succeeds.
+  - rc: 0 ok, 1 invalid (step ≥ 64, an id that cannot be recorded, a value outside its range), 2 full, 3 a song is playing.
+    A track ≥ NTRK, `on` above 1 or any other length gets no reply.
+  - Events come back in the order they are stored. The device does not push motion changes: poll `MOTION`
+    (the web editor does, while the sequencer tab shows).
+  - `DUMP`, `TRACK_DUMP`, a user preset store and a project save give the sound's own (base) values;
+    `GET`, `SET` and the pushes give what is sounding now, which differs while a motion event is in effect.
+  - A pattern load and a pattern clear on the device drop the track's motion; the device's UNDO brings it back.
+    `MOTION` clear does the same through the same undo copy. A sound load (a preset, `PRESET`, `G_ENGSEL`, `UP_LOAD`,
+    INIT SOUND) keeps it since 1.1.5 when the engine stays the same; when the engine changes the records on the
+    engine's own ids (E1..E8 `P_E0..P_E7`, DIGITAL's 61..80, the DRUM lane levels) go and the rest (both kinds)
+    stays, PLAY as it was (until 1.1 a sound load dropped the whole motion). Poll `MOTION` after a load.
+  - The device's own lock edits (a step held + a knob, SEQ > PARAMETER LOCKS (1.1.5's AUTO LIST)) go through its UNDO; `MOTION` ops
+    3..7 do not (the protocol is unchanged in 1.1.5).
+- **Projects (FUN7).** 3388 bytes, little endian, in the same A/B sectors as before: `46 55 4E 37` ("FUN7"),
+  size u32 (3388), the 27 globals as i16 (bytes 8..61), sel, parts, phys (62..64), P_COUNT as stored (byte 66),
+  then from byte 68 for each of the 4 tracks: P_COUNT bytes (value + 64), engine, preset, 64 steps of 9 bytes
+  (4 notes; n | time << 3 | flags << 5; vel; hit; acc; chance byte where 0 = 100 %, 1..100, 101 = never; firmware
+  with `52 01`: the ratchet − 1 in bit 7 of vel (bit 0) and of the chance byte (bit 1), see "Ratchet");
+  then the song chain, then the motion (260 bytes: count, on mask, 2 reserved, 64 × (track << 6 | step, id,
+  i16 value); 1.1: bit 7 of the id byte marks a parameter lock, see "Parameter locks"); the reserved tail is zero up to byte 3371; bytes 3372..3383 are the project's name (since
+  1.0: ASCII 32..126, upper case, 0-padded; all zero = no name, as firmware before wrote them; a byte
+  outside 32..126 reads as no name, it never refuses the project); the last 4 bytes are an FNV-1a hash of all
+  before (the name included). The device names projects itself (SAVE > PROJECT, NAME); the editor's PROJECT
+  save keeps the current name, and backups carry it as part of the 3388 bytes. FUN6..FUN1 load with no name
+  and are bounded to today's ranges. A count smaller than P_COUNT is mapped as for user presets, and so are the
+  motion events' ids: a FUN7 of 89 parameters has its engine parameters' events at 81..88, which load as 83..90
+  (the ids below its P_E0 stay). 68 + 4 × (91 + 2 + 576) + chain + motion = 3040 bytes: 332 to spare.
+- **Projects (FUN8, with FM6).** FUN7 laid out the same way, `46 55 4E 38` ("FUN8"), size 3584: the data up to
+  byte 3040 as above (16 bytes to spare), the four tracks' FM6 patches as packed 128-byte records (see "FM6
+  patches") at bytes 3056..3567, the name at 3568..3579, the hash last. FUN7 (3388) and older load with the
+  init patch on every track. Backups, `PROJECT` and the editor's project files carry the 3584 bytes.
+- **Projects (FUN9, since 1.1).** FUN8 laid out the same way, `46 55 4E 39` ("FUN9"), size 3648: P_COUNT 99 made
+  the data 68 + 4 × (99 + 2 + 576) + chain + motion = 3072 bytes, which no longer fit before FUN8's patches. The
+  FM6 patches at 3120..3631 (48 bytes to spare before them), the name at 3632..3643, the hash last. FUN8 (3584,
+  91 parameters) loads mapped by count (the lane levels 127, the engine values and their motion events and locks
+  from 83..90 to 91..98, a lock's bit 7 kept); FUN7 and older as before. Firmware 1.0.x refuses a FUN9 (its size, magic and P_COUNT). Backups,
+  `PROJECT` and the editor's project files carry the 3648 bytes; a backup `PUT` takes 3648, 3584 or 3388.
+- **Projects (FUN10, since 1.2).** FUN9 laid out the same way, `46 55 4E 41` ("FUNA", FUN10 in these notes), size
+  3840 (a whole storage object): P_COUNT 104 at byte 66 and 104 bytes per track (103 in builds before SPREAD: loaded by count); each step's nudge (−8..+7, two's
+  complement in 4 bits) in bit 7 of its four note bytes (bit j of the nudge in note j; every older format wrote them 0);
+  the motion block 388 bytes: count, on mask, 2 reserved, 128 × (track << 6 | step, id (bit 7 a lock), value as a signed
+  byte −64..127); the song's chain is its sections (84 bytes, see "1.2: song sections"). 68 + 4 × (104 + 2 + 576) + chain + motion = 3268; the FM6 patches at 3312..3823 (44 bytes to spare
+  before them), the name at 3824..3835, the hash last. FUN9 (3648, 99 parameters, 64 records of 4 bytes) loads mapped by
+  count (LFO 2 off, QUANTIZE ON, SPREAD 0, the engine values and their motion from 91..98 to 96..103), every nudge 0; FUN8 and
+  older as before. Firmware before 1.2 refuses a FUN10 (its size and magic), so an editor must not send one there
+  (`BACKUP_PUT` begin answers rc 1 for its size). Backups, `PROJECT` and the editor's project files carry the 3840 bytes.
+- **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
+  steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,
+  Continue (0xFB) resumes and Stop (0xFC) stops; BPM follows the incoming tempo (40..240), and 500 ms
+  without a pulse stops the transport. Changing `G_CLOCK` stops it. **3 AUTO** (0.2.14, the default): the internal
+  clock until a port's clock arrives (3 pulses 8..80 ms apart, or its Start / Continue), that port while it runs (the
+  other ignored), the internal clock again 1 s after its last pulse, at the last tempo; a switch never stops the
+  transport. A `SET` of id 2 stops the transport only when the clock it plays on changes. Values 0..2 keep their
+  meaning; firmware before 0.2.14 clamps a 3 to 2 (TRS).
+- Pitch bend, sustain (CC64), RPN 0 (bend range, ±0..24 semitones), CC120 / 121 / 123 are MIDI only and
+  have no parameters, protocol or saved state. The standard CC map (1.1: CC5 7 10 71..75 91 93 94, README "MIDI
+  in") sets parameters as a knob does: the editor sees those changes as `CHANGED` / `TRACK_CHANGED` pushes.
+
+## Ratchet
+
+INFO advertises `52 01 4` after the MENU settings tag (`4E 01 count`): a step plays up to 4 times. Firmware without the tag has no
+ratchet byte (read every step as 1).
+
+- A NOTE step's ratchet 2..4 plays all of it (its notes and its drum hits) that many times, in equal parts of the
+  step as swung, each part retriggered and held for GATE of the part. The chance is rolled once for the step (a
+  failed roll: no part). A slide into it glides into the first part; it never slides or ties into the next step. 1
+  (the default, what every older pattern holds) is the step as before. TIE and REST steps ignore it.
+- `STEP_GET` / `STEP_SET` / `TRACK_STEP`: the byte after the chance, 1..4. The flags byte stays 1 accent, 2 slide in
+  both directions; a write without the ratchet byte (an older editor) keeps the step's ratchet.
+- On the device: a RATCH row of SEQ > PARAMETER LOCKS (1.2; up to 1.1.5 SEQ > CHANCE, KNOB 3), KNOB 4 x1..x4; the piano roll and the DRUM grid draw a
+  ratcheted step in its parts. Changing it pushes `STEP_CHANGED`.
+- Saved in projects (FUN7 / FUN8 layout unchanged: bit 7 of the velocity byte is the ratchet − 1's bit 0, bit 7 of
+  the chance byte its bit 1; 0 in every older project, which load x1), so also in backups and song rows. Firmware
+  before the ratchet refuses a project that holds one. A user preset's note pattern keeps it in its flags (8 | 16);
+  a drum grid record has no room for it and loads x1.
+
+## Parameter locks
+
+INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it has no locks.
+
+- A **lock** is a motion record (the same 64 shared by the four tracks, one per track, step and id, of either kind)
+  whose value sounds on its step only. When the step plays (its chance passed; a step that does not play applies
+  none of its locks) the value is set at the step's start, before its notes, and lasts the whole step (its ratchet
+  parts too); the next step puts back what sounds without it: the latest automation event of that id at a step up
+  to that one in this pass, else the sound's own value. An **automation event** (what the device records with REC
+  armed) sets its value at its step and holds it, as before. The ids that can be locked are the ones motion can
+  record (`motion_param`, see above); PARAMETER LOCKS' PLAY OFF bypasses locks too, its CLEAR clears them.
+- `MOTION` 5 sets a lock (track, 5, step, id, v14): as op 3, the value inside the parameter's range for the track's
+  engine, rc 2 when the 64 are used. A lock and an automation event on the same step and id are one record: op 3
+  over a lock makes it an automation event, op 5 over an automation event makes it a lock. Op 4 deletes either
+  kind. Op 6 (track, 6, step) removes that step's locks (step 127: every step's), its automation events stay.
+  Op 7 (track, 7) is the query. Ops 5..7 reply as the query and then one kind byte per record, in the same order
+  (0 automation, 1 lock); the query and ops 1..4 reply as before 1.1, where a lock reads as an automation event.
+- In projects (FUN9; the motion block is laid out as in FUN7 / FUN8) a lock is a motion record with bit 7 of its id
+  byte set (ids are below 128: P_COUNT is 99). Every project before 1.1 has none; a FUN8 / FUN7 of a 1.1
+  development build may hold some, and on load their ids move to today's positions (83..90 to 91..98 for a FUN8)
+  with bit 7 kept. Firmware before 1.1 refuses a project that holds a lock (an id out of its range), as it does a
+  newer format; so do backups and song rows.
+- On the device: on SEQ > STEP hold a step and turn KNOB 1..4. The knobs lock the four parameters of the sound
+  page shown last before (HOME's four, ENV, LFO, FX, EDIT 1 / 2, ..; the cards show them while a step is held). On
+  the DRUM grid a step is its white key (several held: each gets the lock; a key pressed on a hit takes it away
+  only when let go without a knob turned); on the piano roll the step being entered (its note keys held). [EDIT]
+  tapped with a step held clears its locks; EDIT alone clears the step and its locks. The roll and the grid mark
+  the steps that hold a lock; PARAMETER LOCKS shows the count (LOCK).
+
+## 1.2: LFO 2, NUDGE, 128 records (FUN10)
+
+INFO advertises `41 01 00 01` (the motion capacity, 128 as two 7-bit bytes, LSB first) and `54 01 16` (a step's nudge,
+in 1/16 of a step) after the locks tag (`4C 01 1`). Firmware without them: 64 records, no nudge byte, P_COUNT 99.
+
+- **Parameters** (from `INFO` / `DESC` as always): 91 `SYNC` (enum OFF 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32,
+  default OFF: one LFO cycle per note value of the tempo, internal or the external clock's), 92 `TRIG` (NOTE FREE,
+  default FREE since 0.2.2 (it was NOTE): NOTE restarts at PHS on a fresh phrase, FREE never), 93 `POL` (BI UNI, default BI: −1..+1, or 0..+1 with the
+  same depths reaching as far, one way), 94 `QNTZ` (OFF ON, default ON: every step on its start; OFF plays the
+  nudges). The defaults play as before 1.2 (except TRIG, FREE since 0.2.2). `SYNC` `TRIG` `POL` are the sound's (a sound load sets them; user presets
+  store them); `QNTZ` is the track's (like LEN DIV SWING GATE: a sound load keeps it; an editor's audition must not
+  send it, as for the other track-own ids). None of the four can be recorded as motion (`MOTION` 3 / 5 answer rc 1)
+  and no MIDI CC sets them. 95 `SPRD` (0..127, PCT, default 0: every voice on PAN, as before): a POLY / UNISON
+  track's voices alternate left and right of PAN by SPRD / 2 (127: hard left / right); MONO and LEGATO ignore it. It is
+  the sound's (a factory preset sets 0, user presets store it) and can be recorded as motion. The engine parameters are
+  96..103. ANALOG's `WAVE` (E0) gained 5 SYNC (OSC 2 hard-synced to OSC 1, DTN its interval, the SHP routings sweep it)
+  and 6 SUB (OSC 2 a square an octave below, MIX its level); `DESC` keeps DTN / MIX's labels (the device relabels them).
+- **Nudge:** the byte after the ratchet in `STEP_GET` / `STEP_SET` / `TRACK_STEP` (a change on the device pushes
+  `STEP_CHANGED`), nudge + 8 (0..15:
+  −8 = half a step early .. +7 = 7/16 late, 8 = on the step). A write without it keeps the step's. The device records it
+  live and sets it on SEQ > PARAMETER LOCKS' NUDGE rows (and STEP, steps held + PRESETS); it plays with the track's `QNTZ` OFF
+  (on the device: PARAMETER LOCKS' QUANTIZE row; not for a ratcheted step: its parts divide the step).
+- **Motion:** 128 records shared by the four tracks, both kinds. Ops 1..7 reply as before 1.2 (`max` 64, at most the
+  track's first 64 records in store order: an editor of before keeps working while a track holds no more); op 8
+  (track, 8) answers every record with count and max as two 7-bit bytes and the kinds. A set when the 128 are used: rc 2.
+- **Projects** are FUN10 (above); user presets store 104 parameters (1.5: 111; UP_GET / UP_PUT: P_COUNT values, as INFO says).
+
+## 1.5: the INSERT
+
+Five track parameters before the engine parameters, ahead of 1.5's TYPE and ESYNC (below; with them P_COUNT 111, P_E0
+103; take both from `INFO` as always):
+
+| id | label | values |
+| --- | --- | --- |
+| 96 | INSRT | enum (append-only): 0 OFF, 1 SOFT, 2 HARD, 3 FOLD, 4 FUZZ, 5 CRUSH, 6 PHASR, 7 FLANG, 8 CHOR, 9 TAPE, 10 VINYL (0.2.14); default OFF |
+| 97 | INS A | 0..127, default 64: SOFT .. FUZZ DRIVE (PCT), CRUSH BITS (0.2.14: every value a different depth, 1 bit at 0 to 16 bits at 126 and 127; whole bits at 0 16 30 44 57 69 79 90 99 108 111 114 117 120 123 126 for 1..16, `DESC` gives the card's whole number per value; before 0.2.14: 1 + v / 8, see the note under the table), PHASR / FLANG / CHOR RATE (LFOHZ), TAPE WOW (PCT, default 47), VINYL DUST (PCT, default 47; 0 none) |
+| 98 | INS B | 0..127, default 96: SOFT .. FUZZ TONE (CUTOFF), CRUSH RATE (v / 8 picks 689 919 1.1k 1.4k 1.8k 2.2k 2.8k 3.7k 4.4k 5.5k 7.4k 8.8k 11k 15k 22k 44k Hz), the swept ones DEPTH (PCT), TAPE SAT (PCT, default 71), VINYL NOISE (PCT, default 47) |
+| 99 | INS C | 0..127, default 96: SOFT .. FUZZ LEVEL (DB, as LVL: 112 = 0 dB), CRUSH LPF (CUTOFF), the swept ones FDBK (PCT), TAPE TONE (CUTOFF, default 110), VINYL WARP (PCT, default 17) |
+
+(0.2.14) CRUSH BITS moved: a value `v` of before (1 + v / 8 bits) is now the detent of the same bit count, `[0,16,30,44,57,69,79,90,99,108,111,114,117,120,123,126][v / 8]`. Until 0.2.13 the device converted what it stored (a project: byte 67 of the FUN11, 0 before and 1 now; a multi: version 3; a patch record: flag 128) when it loaded an older one; since 0.2.14 it refuses an older one (those three are now the only forms it reads). An editor that keeps patch or multi data of its own from before has to convert the INS A of its CRUSH records the same way; INS A of the other types is unchanged. DIST (id 33) 1..11 blends the dry signal and the effect (`dry + (wet - dry) * DIST / 12`); 12 up is the effect alone as before, 0 is off.
+| 100 | MIX | 0..127 (PCT), default 127: dry / wet; 0 = the dry track, bit for bit |
+
+`DESC` gives the generic labels and formats above (`INS A` .. `INS C`, PCT): the meaning of 97..99 depends on 96, as
+the engine parameters' on the engine; an editor that shows them by TYPE uses the table (the device does:
+`params.c ins_desc`). All five are the sound's (a factory preset sets OFF and the defaults, a user preset stores them,
+an audition sends them) and can be recorded as motion and locks (`MOTION` 3 / 5: rc 0). With TYPE OFF (or MIX 0) a
+track plays exactly as before 1.5. Older stores load by count: a FUN10 of 104 (1.2 .. 1.4) or 103 parameters, FUN9 and
+older, user presets of 104 and fewer: the INSERT OFF, their engine values and motion moved up to 103..110. Firmware
+before 1.5 shows a FUN10 of 111 parameters as EMPTY and refuses it in a backup `PUT` (its P_COUNT is larger than its
+own); a user preset record of 111 already in its flash it maps by count (the INSERT dropped, the engine values
+found). `UP_PUT` takes the device's own P_COUNT values, as always.
+
+## 1.2: song sections
+
+INFO advertises `57 01 4` (after `54 01 16`): `SONG` (33) has ops 4..7, ops 0..3 with sections instead of rows. A section
+names the PROJECT slot each of the four tracks plays (0..3 = A..D, 4 = "-": the track plays nothing there) and its
+repeats (1..16); up to 16 sections.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 33 SONG | op 4 query; op 5 set, count 0..16, count × (slot T1, slot T2, slot T3, slot T4 (0..4), repeat 1..16); op 6 start; op 7 stop | op (4..7), rc, count, running 0/1, section 0..15, remaining repeats, count × (slot T1..T4, repeat) |
+
+A set must have exactly `2 + count × 5` argument bytes; rc as for ops 0..3 (1 = invalid sections, 2 = busy, 3..6 = a
+slot a lane plays is empty; a silent lane needs none, a song of "-" only plays silence). Ops 0..3 keep their meaning: a
+set (op 1) makes each row a section with the four tracks on its slot (a slot of 4 there is invalid, rc 1); their replies
+list a row per section, the slot of its clock lane (below; every lane "-": 0) and its repeats, so an editor of before
+sees the song's order but not its lanes, and a set from it makes the song lane-less again.
+
+Playback: each track reads its own slot's steps (CHANCE, RATCH, NUDGE), automation and locks, LEN / DIV / SWING / GATE
+and QUANTIZE, for that track only; the sounds stay current. Sections keep one boundary for all four tracks: a section
+lasts `repeat` loops of its clock lane, the first track not "-" there (track 1 when it plays: every song of rows counts
+as before); every lane "-": a 4/4 bar (16 × 1/16). At each section all four start together from their step 1. A "-"
+lane releases its sequenced notes at the section's start and its automation goes back to the sound's own values; live
+keys still play it. While a song plays, `SET` / `TRACK_PARAM` writes to LEN / DIV / SWING / GATE and QNTZ (94) are
+ignored (the slots set them; STOP restores the editable values).
+
+Projects (FUN10) store the sections: 4 + 16 × 5 = 84 bytes (count, 3 reserved, then per section the four slots and the
+repeats) right after the tracks' steps, before the motion: 68 + 4 × (104 + 2 + 576) + 84 + 388 = 3268, 44 bytes to spare
+before the FM6 patches at 3312. FUN9 and older store rows {slot, repeat} (36 bytes); they load as sections with the four
+tracks on the row's slot: the same song.
+
+## 1.5: filter TYPE, ENV SYNC
+
+No new command or INFO tag: P_COUNT 111 and P_E0 103 (from `INFO`, with the INSERT) say it, and `DESC` describes the two as always.
+
+| id | label | values |
+| --- | --- | --- |
+| 101 | `TYPE` | enum LP BP HP, default LP. ANALOG's filter (Discussion #104): the state-variable filter's low-pass (as before, bit for bit), band-pass or high-pass output, CUT / RES / KTR and every cutoff routing as they are. Other engines ignore it. On the device: EDIT > FILTER (TYPE CUT RES KTR), an ANALOG track's page after EDIT 2 |
+| 102 | `ESYNC` | enum OFF ON, default OFF. ENV SYNC (Discussion #175): ON, the amp envelope's ATK DEC REL (ids 1, 2, 4) are note values of the tempo (BPM, or the external clock's measured tempo) instead of 1 ms .. 10 s. On the device: ENV DEST's KNOB 4 |
+
+Both are the sound's (a factory preset or TOOLS INIT sets LP / OFF; user presets and library files store them). Neither can
+be recorded as motion (`MOTION` 3 / 5 answer rc 1) and no MIDI CC sets them.
+
+With `ESYNC` ON the stored values of ATK DEC REL stay 0..127; `DESC` still describes them as times (TIME), but they mean a
+note value: value v is name `ESYNC_NAMES[v × 25 / 128]` (integer division) of the 25, shortest first:
+
+`0` `1/64T` `1/64` `1/32T` `1/64D` `1/32` `1/16T` `1/32D` `1/16` `1/8T` `1/16D` `1/8` `1/4T` `1/8D` `1/4` `1/2T` `1/4D`
+`1/2` `1/1T` `1/2D` `1/1` `1/1D` `2BAR` `3BAR` `4BAR`
+
+(T a triplet, D dotted; in 1/384 of a 4/4 bar: 0 4 6 8 9 12 16 18 24 32 36 48 64 72 96 128 144 192 256 288 384 576 768 1152
+1536; the time is that × a quarter / 96.) `0` is the shortest time, as ATK / DEC / REL 0 with SYNC OFF. The device shows
+these names and its knob steps one name a detent, landing on the first value of each: `(k × 128 + 24) / 25` for name k
+(params.c `param_turn`). An editor should show and step them the same way while the track's `ESYNC` is ON (and keep the
+raw value when it goes OFF: the same number is a time again). The attack reaches the top after that time, the decay
+(to SUS) and the release fall 40 dB in it.
+
+Projects: FUN10 unchanged; one written by 1.5 holds 111 at byte 66 (16 bytes to spare before the FM6 patches, room for 4
+more). A FUN10 of 104 (1.2 .. 1.4) loads by count (the INSERT OFF, TYPE LP, ESYNC OFF; engine values and their motion
+moved up by seven). Firmware 1.2 .. 1.4 refuses a FUN10 of 111 (more parameters than it has: its slot shows EMPTY, a
+backup PUT of one answers rc 1); user presets of 111 load there by count (the seven left out). Library files of 104 map
+by label: the INSERT, TYPE and ESYNC unset.
+
+## v7: full backup (65-67)
+
+INFO advertises `42 01 caps`: bit 0 = `BACKUP_LIST` / `BACKUP_GET` (read), bit 1 = `BACKUP_PUT` (restore);
+this firmware sends 3 (0.2.14: 7, bit 2 = ids 13..23 below; with the user wavetables 15, bit 3 = ids 24..26 and the commands 81..83, "User wavetables" below; 0.2.15: 31, bit 4 = ten more patch chunks, 128 patches; **cloud plan job A: 63, bit 5 = the patches as records**, "Patch records in the archive" below). Requests name objects, never flash addresses.
+
+| id | object | size |
+| --- | --- | --- |
+| 0 | runtime: the music being played now, as a FUN10 project (1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
+| 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
+| 2..5 | PROJECT slots 1..4 (FUN10; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
+| 6, 7 | user preset banks (slots 1..16, 17..32). 0.2.14 .. 0.2.25: the first of the patch store's sixteen physical chunks; **gone with caps bit 5** (rc 1) | the bank's size, or 0 if empty |
+| 8 | the FM6 patch bank of 1.0..1.0.2 (B1..B27). Since 1.0.3 always listed empty (see below) | 3472, or 0 if empty |
+| 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: per slot a tag and the packed patch) | 3728, or 0 if none |
+| 32..34 | user sample slots 1..3 (0.2.9: retired, always listed empty; the archive keeps its ids) | 0 |
+
+Reading: `BACKUP_LIST` (no arguments) stops the transport, then takes a snapshot of the runtime object and
+answers `1, rc, count` (13 since 1.0.3, 12 with FM6 up to 1.0.2, 11 before; L/RRY: 16 with caps 3, 27 with caps 7, 30 with caps 15, 40 with caps 31; **24 with caps 63**: 0, 1, 2..5, 8, 13..26, 32..34) and, per object in the order above, `id, size u32, crc u32` (CRC-32, zlib). The other objects are read as
+they are in RAM or flash. Then `BACKUP_GET` reads an object in pieces: `id, offset u32, count lo, count hi`
+(count 1..256, LSB first 7 bit pair) answers `id, rc, offset u32, count lo, count hi` and the data as pack7. Check each object's CRC
+against the list; if it differs the device changed, so start again.
+
+Restoring: `BACKUP_PUT` takes ids 0..9 (firmware before 1.0.3: 0..8, id 9 answers rc 1 at begin and nothing is written) (the samples were written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`, or `SMP_ERASE` for an empty slot; since 0.2.9 an
+empty slot's `SMP_ERASE` answers rc 0 and a slot with data gets rc 6 at `SMP_BEGIN`: the web editor's restore then skips it and
+restores the rest). Begin: `0, id, size u32, crc u32`: (0.2.14: size 3840 only, a current FUN11, for id 0; the other sizes here are rc 1; ids 2..5 take any size; see the first section.) The sizes of Felucca 1.x: 3840 (FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
+the settings record's size for id 1, 3840, 3648, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6 and 7,
+3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), 3728 or 0 for 9 (its magic,
+version and slot count checked; 0 clears the patches). FUN9, FUN8, FUN7 and FUN6 become FUN10 (1.2; firmware before
+1.2 refuses a 3840-byte project at begin, rc 1).
+An archive without id 8 (written before FM6) still restores; the web editor reads all three kinds (11, 12, 13 objects).
+Since 1.0.3 an id 8 with data (an archive of 1.0..1.0.2) is not stored: like the first boot after the update, every FM6
+user preset whose stored SLOT is a B slot (8..34) and has no patch yet gets that bank slot's patch, and id 9 is written.
+So restore ids 6 and 7 before 8 (the web editor does); an empty id 8 is taken and ignored (rc 0). Old archives
+therefore restore on both old and new firmware; a 1.0.3 archive on older firmware loses only id 9 (the web editor
+skips it when the device answers rc 1). Data: `1, id, offset u32, pack7` with the next offset (they must follow each other)
+and at most 256 decoded bytes (256-byte pieces are fine at full speed, one request at a time: see "Notes for
+the editor"; a piece that gets no reply was not taken: abort and begin the object again). Commit: `2, id`: the device checks the length and the CRC, validates the
+content, and then writes. Abort: `3, id`. Id 0 replaces the music now playing (RAM only, no flash);
+ids 1..9 are written to flash (settings and presets are applied too). Nothing is written before the commit.
+The web editor sends ids 2..7 and the samples first, then 1, then 0 last. A failed restore can leave
+earlier objects restored; the file is still the source.
+
+| rc | Meaning |
+| --- | --- |
+| 0 | ok |
+| 1 | invalid: arguments, id, size, offset, count, or an id `BACKUP_PUT` does not take (cloud plan job A: the old patch chunk ids 6, 7, 9..12, 27..31, 35..39; a patch `GET` of a slot with no record; a patch `PUT` begin with a size other than 0 or 20..534, or a slot above 127; a page 0 or 5 of `LIST`) |
+| 2 | validation failed: CRC, length or content at commit (and a runtime object that cannot be packed; a patch record the store would not read, extension block included) |
+| 3 | stop playback first (`LIST` and `PUT` stop it themselves, and answer 3 if it does not stop in 100 ms; `GET` answers 3 while it plays) |
+| 4 | flash write failed |
+| 5 | stale: no `LIST` yet, the USB bus was reset, 15 s with no `PUT` request, or a project save / load reused the staging RAM (for `GET`, of id 0 only). Start again with `LIST` / `BACKUP_PUT` begin |
+
+`BACKUP_LIST` answers `1, rc, 0` when rc is not 0. `GET` and `PUT` answer id 127 when they got no arguments.
+A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin gets rc 5.
+
+**0.2.14: the multis and the pattern slots are in the archive** (`42 01 7`, bit 2). The list is then 27 ids: 0..12, **13..20**, **21..23**, 32..34 (a
+0.2.13 unit lists the 16 without 13..23). **The user wavetables are in it too** (`42 01 15`, bit 3, value 8): 30 ids, **24..26** added (a unit with caps 7 lists 27). **0.2.15: the patch store's other ten chunks are in it** (`42 01 31`, bit 4, value 16): 40 ids, **27..31** and **35..39** added (a unit with caps 15 lists 30). (**Cloud plan job A, caps 63, takes all the patch chunk ids away again: 24 ids and the patch records, "Patch records in the archive" below.**) The ids 2..5, 8 and 32..34 are retired and always empty; the web editor's `lrry-backup` file leaves them out.
+
+| id | object | size |
+| --- | --- | --- |
+| 13..20 | the multi store, `OBJ_MULTI0..7`: two multis an object, M01-02 .. M15-16 (`multi.c`: magic `MUL1`, u16 length of each record, the two records) | 8..3840, or 0 if both multis are empty (the factory multis show again) |
+| 21..23 | the pattern slots, `OBJ_PATSLOT0..2`: ONE list of 32 slots, 11 + 11 + 10 an object, P01-11, P12-22, P23-32 (`patslot.c`, job F3: magic `PTS3`, a compact variable-length object, below) | 8..3584, never 0 (a slot always holds a pattern) |
+| 24..26 | the user wavetables USR1..USR3, `OBJ_WTAB0..2` (`wtab.c`, below: version 1, 19, 64, flags 0, 8 name bytes, 19 x 64 harmonic bytes) | 1228, or 0 if the slot is EMPTY |
+
+Reading: a multi object is read from flash where it lives, a pattern object from the unit's RAM copy (it is the truth while a pattern write is pending); neither uses the
+staging RAM that holds the runtime snapshot of id 0. Restoring: begin takes a multi object of 0 or 8..3840 bytes and a pattern object of 0 or 8..3584 bytes (else rc 1).
+At commit the unit checks the CRC, then the content (a multi object: magic, both lengths add up, each record's version, part count and printable name; a pattern object: magic `PTS3`, the length in its header equal to the object's, the slot count of that object (11, 11, 10), every record valid: LEN, DIV, SWING, GATE in range, a printable name, every step of a form the unit writes) and answers rc 2 on any failure, writing nothing. Length 0
+writes the empty multi object; on a pattern object it gives the object's slots their DEFAULT patterns again (no pattern slot is ever empty). A multi restore updates the names and the used mask at once; a pattern restore replaces the RAM copy and clears its pending write, so the old copy is never written over it.
+Firmware before 0.2.14 answers rc 1 at the begin of ids 13..23. Restoring writes a whole object: the two multis of an object travel together.
+
+### Patch records in the archive (cloud plan job A, `42 01` caps bit 5, value 32)
+
+The patch store's physical chunks (ids 6, 7, 9..12, 27..31, 35..39) are no longer objects of the archive: a patch is carried **one at a time, as the logical record PATCH_RAW moves** ("PATCH_RAW" below: the stored record with its slot and revision bytes, 2 and 3, zero), so an archive survives a change of the store's geometry and the same sound is the same bytes in any slot. The record may be written into another slot than the one it came from (the bytes carry no slot). The wire id is **40**, and every request has the slot as one more byte. All bytes are 7 bit as everywhere.
+
+- **LIST** (no argument): as before (`1, rc, count`, then `id, size u32, crc u32`), but it lists the 24 ids 0, 1, 2..5, 8, 13..26, 32..34 only. It stops the transport and takes the snapshot. A `GET` or `PUT` of a chunk id answers rc 1.
+- **LIST page** (one argument, page 1..4; needs the plain LIST before, else rc 5; rc 3 while the unit plays; rc 1 for page 0 or 5 or more arguments): `1, rc, count`, then per **saved** patch of the slots 32 (page − 1) .. 32 page − 1, in slot order: `slot, size u32, crc u32` (11 bytes each). A slot that holds its factory sound has no record and is not listed. The size is 20..534; the CRC is CRC-32 of the record as `GET` gives it.
+- **GET** `40, offset u32, count lo, count hi, slot` (9 bytes; count 1..256): the reply is the usual `40, rc, offset u32, count lo, count hi, pack7 data` (it does not repeat the slot). rc 1: a slot with no record, a slot above 127, count 0 or past the end of the record, a request that is not 9 bytes. rc 5 and 3 as for every object.
+- **PUT** begin `0, 40, size u32, crc u32, slot` (13 bytes), data `1, 40, offset u32, pack7 data`, commit `2, 40`, abort `3, 40`; replies `op, 40, rc`. At begin: rc 1 for a size other than 0 or 20..534, a slot above 127 or a request of another length; rc 3 while playing. At commit: rc 2 for a wrong CRC or an incomplete record, **and for a record the store would not read** (`pt_rec_ok`: lengths, flags, engine, the extension block's lengths and version, `up_put_raw`: a printable 0-padded name, values inside the byte); rc 4 when the flash failed. **Size 0 removes the slot's record** (its factory sound is back, as `UP_ERASE` / RESTORE). Each patch is its own atomic sequence: a power cut leaves that patch old or new.
+- **Restoring many patches is many PUT sequences**; an editor that wants the unit's patches to end up exactly the file's puts every patch of the file whose size or CRC differs on the unit (an identical one need not be written: fewer flash writes) and sends a PUT of length 0 for every slot the unit has saved and the file has not. The order does not matter to the unit; the web editor restores the patches first (by slot), then multis, patterns, wavetables, settings, the music last.
+- A unit without bit 5 (a firmware of before job A) has no pages and answers rc 1 to `40`; it still has the chunks (ids 6.. in its LIST). An editor that wants the patches of such a unit uses PATCH_RAW or the installer's physical backup.
+
+**The `lrry-backup` file, version 5** (`web/editor/lrrybackup.js`): the `objects` array holds `{id: 40, slot: k, size, crc, data (base64)}` for each saved patch (only saved patches, sorted by slot, size 20..534, any number of them, even none) beside the objects 0, 1, 13..26; `"patchRecords": true` says the unit gave its patches as records (a file without the flag and without patch objects leaves a unit's patches alone on a restore). A version 5 file with an object of id 6, 7, 9..12, 27..31 or 35..39 is refused. A version 1..4 file may hold the physical chunks: it is read, its other groups restore as before, its patches are **not** restored (the editor says so). The editor keeps a patch in memory under the key 1000 + slot.
+
+## User wavetables (81-83; 0.2.14, INFO `42 01` caps bit 3)
+
+WAVE's TABLE 26..28 are three user slots, USR1..USR3 (firmware `eng_wave.c`, `wtab.c`, `editor_wtab.c`; SPEC.md 2.6 "User tables"). A table is **19 frames x
+64 harmonics, one byte each** (1216 bytes, frame-major: harmonic k of frame f is byte `f * 64 + k - 1`), and an 8 character name. The byte is a log amplitude
+relative to the strongest harmonic of its frame: 0 off, `b` >= 1 gives 2^(-(255 - b) / 16) (255 = 1.0, 16 steps an octave). Every harmonic is a sine, the same in
+all frames: **phases are not kept** and a source with more frames or harmonics is reduced; an editor must tell the user so. The converter, the encoding and the
+note about what is lost are in `web/editor/wavetable.js`. An editor offers the commands only when INFO's `42 01` caps has bit 3 (value 8); an older unit does not
+answer them.
+
+- **WT_LIST** (81): no arguments. Reply `3, 19, 64`, then per slot `used`, the name as a string (0 ended; a used slot with no name has "", the unit then shows
+  `USRn`), the CRC-32 (zlib, as the backup's) of its 1216 bytes as a u32 (0 for an unused slot).
+- **WT_GET** (82): `slot, offset lo, offset hi, count` (offset = lo | hi << 7, 0..1216; count 1..127, the editor sends 112). Reply `slot, rc, offset lo, offset hi,
+  count, pack7 data`. rc 1: a bad argument, an empty slot, a read past the end (count 0 and no data). Reading never touches the flash and works while playing.
+- **WT_PUT** (83): `op 0 begin: 0, slot, 8 name bytes (ASCII 32..126, padded with 0), CRC-32 u32` of the 1216 bytes; `op 1 data: 1, slot, offset lo, offset hi,
+  pack7 data` (in order from 0, at most 128 packed bytes = 112 data bytes a piece); `op 2 commit: 2, slot`; `op 3 abort: 3, slot`; `op 4 erase: 4, slot` (the slot
+  is EMPTY again; an empty slot is not erased again). Reply `op, slot, rc`.
+
+| rc | Meaning |
+| --- | --- |
+| 0 | ok |
+| 1 | invalid: slot above 2, a malformed request, a name byte outside 32..126, data out of order or past 1216 bytes |
+| 2 | validation failed at commit: not all 1216 bytes sent, the CRC does not match, or the table is all zero |
+| 3 | stop playback first: begin, data, commit and erase **stop the sequencer themselves** (as the backup's writes do) and answer 3 if it does not stop in 100 ms; nothing is written while it plays |
+| 4 | flash write failed (the slot is as it was) |
+| 5 | stale: no begin, the USB bus was reset, 15 s with no request, or a project save / load or a backup transfer used the same staging RAM |
+
+At commit the unit writes the object (flash: an erase of the older of the slot's two sectors, the payload, the commit record last, the audio ducked as for any save),
+then a part that is playing that slot fades out and builds the new table. The staging RAM is the backup's (`ED_BK_RAW`): a backup `PUT` begin or `LIST` ends a
+wavetable upload, and the other way round (rc 5). The backup carries the slots as ids 24..26 (above); a backup `PUT` of an id 24..26 takes 0 or 1228 bytes and applies the same checks (version 1, 19 frames, 64 harmonics, flags 0, a printable
+name, not all zero: rc 2), then writes as WT_PUT does. The names shown on the unit are the user's (`USRn` if none, `EMPTY` if the slot is empty); the editor's TABLE list
+comes from `layout.json` (the firmware's static names `USR1`..`USR3`) and should be replaced by WT_LIST's names. A patch, multi or project names a user table by
+its number only (TABLE 26..28); an EMPTY slot plays a sine.
+
+## PATCH_RAW (84; 0.2.19, INFO tag `5A 01 caps`, bit 0)
+
+`UP_PUT` is lossy for a L/RRY patch (it carries the 127 values and a 16-step pattern: End B, the arp / keys / SEQUENCER block and an FM6 sound's own patch are not part of it) and `UP_GET` shows only the values. **PATCH_RAW moves a slot's STORED RECORD (`upreset.c`, "Record") whole, bit for bit**, so an editor can export a patch to a file and import it into any slot of any unit of this firmware generation without losing anything. The record is the unit's own form (flags, engine, category, name, the sparse values, End B, pattern, FM6 patch, arp block); `web/editor/patchrecord.js` reads and writes it (the readable dump of a patch file comes from there). An editor offers the command only when INFO's tag `5A 01` has bit 0 set (an older unit has no such tag and does not answer 84).
+
+The record is read and written **with its slot byte (2) and revision byte (3) zero**: they are the unit's (slot = where it is stored, revision +1 at every rewrite) and the unit sets both when it writes, whatever the bytes say. So the same sound is the same bytes in every slot, and a file can be diffed. Everything else is exactly what the store holds, up to 534 bytes (`PT_WORST`; it was 435 before the extension block).
+
+The record (little endian): `0 u16 length` (of the whole record), `2 slot` and `3 revision` (zero here), `4 flags`, `5 engine`, `6 category`, `7` name (12 bytes, 0-padded), `19` number of values, then **`20` the extension block when flag 16 (`PTF_XB`) is set** (it replaces the retired 2-byte shadow marker), then End B (7 bytes, flag 8), the values (pairs, or a 16-byte bitmap and a byte each with flag 64), the pattern (flag 1), the FM6 patch (flag 4), the arp / keys / sequencer block (flag 32). The block (`firmware/src/up_xb.h`, `web/editor/patchrecord.js` `parseXBlock`):
+
+`[L: 1 byte, the bytes after it][XV: the version, must be 1][section]...`   a section is `[tag][n: the number of data BYTES][data]`
+
+- tag 1, the extension values: n/2 pairs `(wide id, value + 64)`, only the slots off their default; wide ids 128..143 are the 16 slots X0..X15 (`ext.h`); an id outside 128..143 is skipped (a slot a newer firmware has). A slot the block does not name is its default (stored `XB_DEFS` − 64: TWIN LINK X1 and SUB OCTAVE X7 are 1, the others 0).
+- tag 2, the hand-set B edits: n/2 pairs `(wide id 0..126 or 128..255, value + 64)`, at most 32, each id once, the absolute End B value.
+- any other tag is skipped by its n.
+- The block is damaged, and the whole record refused, if: L < 1 or the block runs past the record, XV is not 1, a section runs past the block's end, a tag 1 or tag 2 appears twice, n is odd for tag 1 or 2, a value byte of tag 1 or 2 is above 191, tag 2 has more than 32 pairs, a wide id 127 or a repeated id in tag 2. No block at all (flag clear) when every slot is at its default and there is no edit; the biggest block is 102 bytes (L 101, tag 1 with 16 pairs, tag 2 with 32).
+
+| op | Request | Reply |
+| --- | --- | --- |
+| 0 INFO | `0, slot` | `0, slot, rc, saved, length lo, length hi, CRC-32` (the CRC as 5 x 7 bit, LSB first). A slot that holds its factory sound answers saved 0, length 0, CRC 0 (there is no record: `UP_GET` gives its values) |
+| 1 READ | `1, slot, offset lo, offset hi, count` (offset = lo \| hi << 7; count 1..112) | `1, slot, rc, offset lo, offset hi, count, pack7 data`. rc 1: a bad argument, a slot with no record, a read past the end. Reading never touches the flash and works while the unit plays |
+| 2 BEGIN | `2, slot, length lo, length hi, CRC-32 (5 x 7 bit)` (length 20..534) | `2, slot, rc` |
+| 3 DATA | `3, slot, offset lo, offset hi, pack7 data` (in order from 0, at most 128 packed bytes = 112 data bytes a piece) | `3, slot, rc` |
+| 4 COMMIT | `4, slot` | `4, slot, rc` |
+| 5 ABORT | `5, slot` | `5, slot, rc` |
+
+The write follows the rules of the other staged writes (`WT_PUT`, `BACKUP_PUT`): **BEGIN, DATA and COMMIT stop the sequencer themselves and answer rc 3 if it does not stop within 100 ms, and then nothing is written** (a malformed request never stops it); the record is staged in the backup's staging RAM (a backup or wavetable transfer that begins after it makes it stale, and the other way round); a transfer is stale after a USB bus reset or 15 s with no request. At COMMIT the unit checks the length and the CRC-32 of what it received, then that **the store would read the record** (`pt_rec_ok`: length field, flags, today's form (PTF_CB), an engine that exists, a printable 0-padded name of 1..12 characters, every value inside the byte the store keeps, no parameter id past P_COUNT, the extension block's lengths, version and contents as above), then writes the one chunk the slot lives in with the standard commit-last write (the audio is ducked; a power cut leaves the old record or the new, whole). The slot is the unit's afterwards as after `UP_PUT` (a part that plays it does not change until it loads it).
+
+| rc | Meaning |
+| --- | --- |
+| 0 | ok |
+| 1 | invalid: a slot above 127, a malformed request, a length outside 20..534, data out of order or past the announced length; at COMMIT: a record the store would not read (nothing written) |
+| 2 | validation failed at COMMIT: not all bytes sent, or the CRC-32 does not match (nothing written) |
+| 3 | stop playback first (nothing written while it plays) |
+| 4 | the flash write failed (the slot is as it was) |
+| 5 | stale: no BEGIN, the USB bus was reset, 15 s with no request, or a backup / wavetable transfer used the staging RAM |
+
+Every slot can always be written (the store holds 128 records of the biggest size, so there is no 'full'). A factory slot has no record: an editor copies its sound with `UP_GET` + `UP_PUT` (an approximate copy: the values only), or loads it into a part and saves it with `UP_STORE`. The editor's files: `lrry-patches` (a JSON list of records, base64, with a CRC-32 each and a readable dump; `docs/EDITOR_LIBRARIAN.md`) and `lrry-wavetable` (the 1216 bytes of a user table, base64, CRC-32). Tested in `tests/patchraw_test.c` (round trip of the biggest record bit for bit, decoded and loaded the same, only the chunk's sectors written, refusal while playing, malformed and stale transfers, records the store would not read, a flash failure, a power cut at every step of a write, all 128 slots filled) and `tests/dx7_import_test.c` + `web/test_librarian.mjs` (the 12 CC0 DX7 banks converted to FM6 patch records: stored, loaded and rendered bit for bit like the engine loading the voice).
+
+
+## FM6 patches (68-71)
+
+The FM6 engine (12) plays a 6-operator patch per track; its eight EDIT parameters are macros on top of it
+(ALG 0 = the patch's algorithm, 1..32 another; FB, MLVL, MRAT, MEG, VMOD offsets; DTUN; SLOT). The patch itself
+only travels through these commands. INFO advertises `46 01 nfactory nbank` after the backup tag (1.0.3:
+`46 01 08 00`; 1.0..1.0.2: `46 01 08 1B`); firmware without it has no FM6 and does not answer 68..71.
+After it, `53 01 caps` (live sync, v2 above): bit 0 = `WATCH` while watching keeps what is not pushed yet,
+bit 1 = no `RELOAD` after the editor's own `PRESET` / `SET` of G_ENGSEL. This firmware sends 3.
+Then (1.0.3) `50 01 caps`, FM6 v2: bit 0 = no patch bank (SLOT is F1..F8 = 0..7 and 8 = OWN; the bank target
+answers rc 3), bit 1 = user presets carry their patch (target 3; backup id 9). This firmware sends 3. Firmware
+without the tag has the bank and SLOT 0..34 (F1..F8, B1..B27): an editor should not offer the bank either way.
+
+SLOT (P_E0 + 7), since 1.0.3: 0..7 load that factory patch into the track; 8 (OWN) is the track's own patch (what
+a project, a user preset, a converted DIGITAL sound or an FM6_PUT to the track put there). Every such load sets SLOT
+to F n when the patch is that factory patch unchanged, else OWN, and nothing reloads over it. Setting SLOT from OWN
+to F n keeps the own patch aside; setting it back to OWN brings it back. 1.4.1: 9..40 (B1..B32) load a voice of
+the voice bank (below) the same way; a `SET` to a bank slot without a voice is refused (SLOT goes back to the value
+it had: a `GET` or the `CHANGED` push shows it), and the device's knob passes over such slots. SLOT is never stored as
+a bank slot: a stored 9..40 (in a project, a user preset or a motion record; 1.0.2 wrote 8..34 for its B1..B27) loads
+as 8, OWN, with the patch that came with it (DESC: SLOT max 40; firmware before 1.4.1: 8).
+
+Since 1.2 the device edits the patch too (EDIT > OPERATOR, OP ENV, OPERATOR 2: an operator's coarse / fine
+frequency, output level, mode, detune, velocity sensitivity, R1..R4 and L1..L4). Each such edit writes that byte of
+the track's patch and sets SLOT to 8 (OWN), which the editor sees as any SLOT change; the patch it holds for the
+track may then be stale: read it again with `FM6_GET` (target 0). Nothing new on the wire: no command, parameter
+id or INFO tag (the operator values are the patch, not parameters: no `SET`, no automation).
+
+A patch is the 128-byte packed record of the generic 6-operator voice (the 32-voice bank's record; every byte is
+7-bit, so it travels as it is, no pack7). Operators come sixth first: per operator 17 bytes (R1..R4, L1..L4,
+break point, left / right depth, curves `LC | RC << 2`, `RS | DET << 3`, `AMS | KVS << 2`, output level,
+`MODE | FC << 1`, fine), then pitch EG rates and levels (102..109), algorithm 0..31 (110), `FB | OKS << 3`,
+LFO speed, delay, PMD, AMD, `SYNC | WAVE << 1 | PMS << 4`, transpose (24 = none), the name (10 ASCII bytes).
+The device stores every value clamped into its range.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 68 FM6_GET | target, index | target, index, rc, then (rc 0) the 128 bytes |
+| 69 FM6_PUT | target, index, the 128 bytes | target, index, rc |
+| 70 FM6_LIST | — | nfactory, nbank, then per slot (factory first): used (0/1), name string ("" if empty); 1.0.3: nbank 0, the factory patches only |
+| 71 FM6_ERASE | bank index | index, rc (1.0.3: 3, no bank) |
+
+target:
+- 0 a track's own patch (index 0..3: what it plays and what its project saves). A PUT is heard at once; SLOT becomes
+  OWN (F n if it is that factory patch unchanged), and the device does not reload a factory patch over it.
+- 1 the patch bank. 1.0..1.0.2: index 0..26 = B1..B27 in flash (A 0x9F000, B 0xFE000; backup id 8). Since 1.0.3:
+  GET, PUT and ERASE answer rc 3 ("no bank") and change nothing; LIST reports nbank 0.
+- 2 a factory patch (0..7, GET only).
+- 3 a user preset's patch (1.0.3; index 0..31 = U01..U32). It is kept beside the record and counts only for an FM6
+  record as it was when the patch was stored (a rename keeps it; an `UP_PUT` that changes the record, `UP_ERASE` or another store
+  drops it). `UP_STORE` / SAVE of an FM6 track stores the track's patch with it; `UP_LOAD` plays it. GET: rc 2 when
+  the slot has none (not an FM6 sound, or stored without one: it then loads SLOT's factory patch, or the init voice
+  for OWN). PUT (after an `UP_PUT` of the record): rc 1 when the slot is not a used FM6 record; it writes flash (stops
+  the transport, allow 1 s).
+
+rc: 0 ok, 1 arguments (an unknown target, an index out of range, a record that is not 128 bytes), 2 empty (GET) or a
+flash error / transport that did not stop (PUT), 3 no bank (1.0.3, target 1 and ERASE).
+
+The web editor (6-OP FM tab) imports the generic SysEx files of the format: a single voice `F0 43 0n 00 01 1B`, the
+155-byte unpacked voice, checksum, `F7` (163 bytes), and 32 voices `F0 43 0n 09 20 00`, 32 x 128 packed, checksum,
+`F7` (4104 bytes); the checksum is the two's complement of the data's sum, 7 bits. Raw 155 / 4096-byte files are
+read too. Pick a voice, edit it, send it to a track (target 0); to keep it, SAVE it as a user preset (or save the
+project) on the device. It exports single voices. Its librarian reads and writes a user preset's patch (target 3)
+with the record when the firmware has FM6 v2 bit 1, and keeps it in library files as `fm6` (128 numbers).
+
+## FM6 voice bank (74-77; 1.4.1)
+
+32 voices in flash, written whole from the editor (a 32-voice SysEx file: its 128-byte packed records, the format
+`FM6_PUT` takes), picked on the device with SLOT B1..B32 (9..40). Loading one copies it into the track's patch as F1..F8
+do: the patch is the track's from then on, saved with projects and user presets (`FM6_GET` target 0 reads it), so a
+project made with a bank voice sounds the same after the bank was replaced. INFO advertises `56 01 32` (32 voices)
+after `57 01 4`; firmware without the tag answers none of 74..77 and has SLOT 0..8.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 74 FM6B_BEGIN | — | rc. Starts a transfer (stops the transport; erases a sector: allow 1 s) |
+| 75 FM6B_WRITE | index 0..31, the 128 bytes | index, rc. Each index at most once per transfer; voices not written are empty in the new bank |
+| 76 FM6B_END | name (10 ASCII bytes, space-padded), CRC-32 (zlib's) of the written records, 128 bytes each in index order (5 × 7 bits, LSB first: bits 0..6, 7..13, .., 28..31) | rc, voices (how many the bank the device holds now has). rc 0: the new bank replaced the old one (allow 1 s) |
+| 77 FM6B_LIST | — | 32, bank (1 there is one, 0 none), its name string, then per voice: used (0/1), name string ("" if empty) |
+
+rc: 0 ok, 1 arguments (an index past 31 or written twice, a record that is not 128 bytes, an END that is not 15
+bytes), 2 the CRC did not match (nothing changed: the old bank stays; start again with `FM6B_BEGIN`), 3 playback did
+not stop, 4 flash (no flash, an erase or a write failed), 5 no transfer (no `FM6B_BEGIN`, an END already answered, or
+the device's autosave took the transfer's flash between two requests, after 10 s without one: start again).
+
+- An END with no WRITE (the CRC of nothing: 0) writes an empty bank: every B slot is empty.
+- The old bank stays until END answers rc 0; a power cut at any point leaves the old bank or the new one, never a mix.
+- A track on a bank slot when a new bank arrives keeps the voice it played, as its own patch: SLOT becomes OWN.
+- The editor's import (6-OP FM tab): a 32-voice file's voices, each packed as for a single voice (every value into
+  its range); an empty slot of a shorter file is not written. Flash: the bank is at 0xE7000; a transfer is staged in
+  the autosave's older sector first (0xE5000 / 0xE6000), which the next autosave writes over anyway.
+
+## MIDI LEARN (78-79; 1.5)
+
+The device can set a controller's CC to any knob's parameter of a track (Discussion #170): GLO + D4 turns MIDI LEARN
+on, a knob turned picks its parameter on the selected track (GLO's KNOB 1..4: T1..T4 LEVEL), the next CC that comes is
+set to it. Up to 16 CCs, each to one parameter of one track (0..3), whatever channel it comes on (a channel MIDI IN /
+ROUT ignores stays ignored) and whichever track that channel plays; a CC 0..127 over the parameter's range, as a knob
+(and as PARAMETER LOCKS records a knob). One CC sets one parameter and a parameter has one CC: learning a parameter again moves it to the new CC. **L/RRY (the MIDI MAP): a learned CC is a learned line of the MIDI MAP (below), and a number that already moves something else is no longer
+taken silently**: LEARN_SET op 0 answers rc 6 and, after the list, the owner's name (0-terminated); a fifth byte, force 1, takes it. The entries are listed by CC number, not by slot (the first free slot was the order of before), a learned line on an extension slot is not in this list (MAP_GET has it). Never learned: CC0, 1, 6, 11, 32, 38, 64, 96..101, 120..127 (their meaning: bank select, MODW, RPN data, EXPR,
+the pedal, data increment / NRPN / RPN, channel mode). The map is part of the settings (kept across power-off, not in
+projects or user presets; a full backup carries it with the settings object); empty in every older setting. An engine
+parameter is learned by its place (P_E0 + k): on a track that changes engine the CC sets that engine's k-th value.
+INFO advertises `43 01 16` (16 entries) after `56 01 32`; firmware without the tag answers neither command. The
+device's MENU > MIDI > LEARN CLEAR (OCT +: every entry cleared) is an action, not a setting: `MENU_DESC` does not offer
+it (the MENU settings' count stays); `LEARN_SET` op 2 does the same.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 78 LEARN_GET | — | 16, then 16 × (used 0/1, CC, track, parameter id); an empty entry `0 0 0 0` |
+| 79 LEARN_SET | op 0 learn: 0, CC, track, parameter id; op 1 clear a CC: 1, CC; op 2 clear all: 2 | rc, then LEARN_GET's reply |
+
+The parameter id is this firmware's (`P_*`, P_E0 from `INFO`). rc: 0 applied and saved, 1 arguments (an unknown op, a
+CC that is never learned or past 127, a track past 3, an id past P_COUNT − 1), 3 applied in RAM only (no flash, a
+failed write), 4 applied, saved when the transport stops, 5 full (16 others: clear one first), 6 (L/RRY) the CC moves something else (its name follows the list). Op 1 on a CC not
+learned, op 2 on an empty map: rc 0, nothing changes. The device does not tell the editor when it learns: read the map
+again (LEARN_GET) when it matters (e.g. with the settings, or after the user says so). Example: `F0 7D 46 4C 4F 00 4A
+03 62 F7` (op 0: CC74, T4, id 98: P_E0 + 2, DRUM's TONE, where P_E0 is 96 as in 1.2 .. 1.4.1) answers `F0 7D 46 4C 4F 00 10 01 4A 03 62 ...
+F7` (rc 0, 16 entries, the first CC74 on T4 id 98).
+
+## MIDI MAP (85-88; L/RRY)
+
+One table of 128 lines, one per CC number (docs/design/MIDI_MAP_DESIGN_2.md, the shipped list docs/MIDI_MAP_DEFAULTS.csv). A parameter with no line is learn only. A line is 16 bits: bits 0..9 the **target code**, 10..11 the **part rule**
+(0 the part the CC's channel plays, 1 part 1, 2 part 2, 3 global: any channel), 12..13 **who** (0 shipped, 1 typed, 2 learned, 3 locked), 14 spare (CC out; always 0), 15 cleared by the user (a shipped line the user took away or moved: a later
+firmware does not fill the number again). **A learned line is pinned to a track:** its two part-rule bits are the track 0..3, not a rule. Target codes: 0..126 the part values by id (the eight engine slots P_E0.. included; 127 is the motion
+escape, never a target), 128..142 the extension slots (128 + slot), 256 MORPH fader, 257 ROLL A, 258 ROLL B, 259 UNDO, 260 ROLL, 261 AMOUNT, 262 TARGET, 263 SMART, 264 ARP, 265 PITCH, 266 MODE, 267 spare (BALANCE until item 157: refused, MAP_E_BAD), 268 XFADE, 269 SPLIT, 270 CUTOFF (CC74: the engine's own
+or the multimode filter's), 271 RESONANCE (CC71), 320 + id a global value (the effects block), 512..767 reserved (PERFORM macros), 1000 a locked line, 1023 an empty line. The 21 standard numbers (0 1 6 11 32 38 64 96..101 120..127) are lines of kind
+locked: shown, never assigned (MAP_SET rc 1, with force too). The rules: one CC moves one parameter and one parameter has one CC; a number that moves something else is refused (rc 2 and the owner's name) unless force is 1 (it takes the
+number, the other parameter becomes learn only); the parameter's old number is freed; at most 16 lines are learned (rc 4), typed lines have no cap. Part rules: a part value, extension slot, MORPH fader, ROLL A / B, UNDO, AMOUNT, CUTOFF, RESONANCE:
+0, 1 or 2; TARGET, SMART, ARP, PITCH: 0 or 3; MODE, XFADE, SPLIT and the global values: 3 (rc 3 otherwise). MAP_GET chunk 4 answers the facts of a target code for the editor's selected part: kind (0 continuous, 1 switch, 2 stepped,
+3 action), where it is saved (0 patch, 1 multi, 2 device), whether PARAMETER LOCKS records a CC move of it, whether it does nothing now (for example DRIVE while the filter 2 is OFF), and its name. A CC on an extension slot writes the part's value
+(End A only, never End B) and is not recorded by PARAMETER LOCKS. MAP_SET and MAP_RESET save the settings (`save`: 0 saved, 3 RAM only, 4 queued until STOP); the table is part of the settings record (a full backup carries it). MAP_ARM waits for the next
+CC the unit hears and makes it the row's line (a typed line); a number that is taken is refused with the name on the unit's footer ("CC74 IS CUTOFF"), cancel with MAP_ARM and no argument. The editor learns the result by reading the map again.
+LEARN_GET / LEARN_SET (above) keep working on the learned lines.
+
+## ERASE ALL (80; 0.2.2)
+
+The same erase as the device's MENU > SYSTEM > ERASE DATA, for the installer's optional "Erase my saved data after installing".
+It erases the settings (theme, scale, MIDI channels and learn map, favourites, preferences, panel table), the autosave, the patch
+store (every stored patch and factory shadow copy), the multis and the pattern slots; the firmware stays
+(the user sample slots are gone since 0.2.9; their flash is not touched). The unit then restarts by itself about 0.7 s after the reply (USB drops and comes back) and starts as a
+new unit (VIOLET, LAYER, factory multi M01). Order and power cuts: see `src/erase_data.c`; the settings go last, each object is
+erased copy by copy, so a cut leaves every object whole or empty and a unit that still boots. Not advertised in INFO (id 80 is the
+next free id; all earlier ids are unchanged); firmware without it does not answer, so a client treats a timeout as "not erased".
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 80 ERASE_ALL | the nine ASCII bytes `45 52 41 53 45 20 41 4C 4C` ("ERASE ALL") and nothing else | rc |
+
+rc: 0 erased (the restart follows), 1 refused: any other payload or length (nothing touched), 3 the transport is running
+(nothing touched; the op does not stop it), 4 the flash failed (some objects may be gone, the settings are not: send it again).
+Allow up to 5 s for the reply (up to 38 sectors are erased, about 45 ms each, skipping the empty ones). Example:
+`F0 7D 46 4C 50 45 52 41 53 45 20 41 4C 4C F7`.
+
+## WAVE (engine 14; 0.2.5)
+
+The wavetable engine (firmware `src/eng_wave.c`, SPEC.md 2.6). `INFO` lists its name `WAVE` as engine 14; `DESC` (scope 0) of
+`P_E0..P_E7` on a track playing it gives:
+
+| E | id (`P_E0` + E) | label | fmt | range, default | meaning |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 119 | TABLE | 8 ENUM | 0..28, 0: SAWSQ PWM HARM ODD ORGAN VOWEL BRASS BOWED RESO COMB DIGI GLASS CHIME ROUGH BAND DUAL THIN PIPE REESE HOOVR GROWL WOBBL YELL METAL STEPS AIR (append-only; 14..25 since 0.2.7), then USR1 USR2 USR3 (26..28, 0.2.14: the user wavetables, below; named as the user named them on the unit) | which table; a change builds the table: the track's notes fade out, are silent for the build (a few hundredths of a second), fade in |
+| 1 | 120 | POS | 1 PCT | 0..127, 0 | the place in the table's scan |
+| 2 | 121 | BEND | 1 PCT | 0..127, 0 | the read's warp (0: none) |
+| 3 | 122 | SYNC | 1 PCT | 0..127, 0 | hard sync, 1 .. 8 x (0: none) |
+| 4 | 123 | SUB | 1 PCT | 0..127, 0 | a sine an octave below |
+| 5 | 124 | DTN | 0 INT, unit `ct` | 0..127, 0 | a second read DTN cents up (0: none) |
+| 6, 7 | 125, 126 | `-` | 0 INT | 0..0 | unused |
+
+The multimode filter (45..48: CUT RES MODE SLOPE, 0.2.9) applies to WAVE (as to PHASE). The SHP depths (ENV 1 / ENV 2 / LFO 1 / LFO 2
+DEST SHP, the matrix's SHP) move POS. Its factory sounds are listed by `FAV_GET` / the browser under engine 14 (factory index
+0..10). Nothing else in the protocol changed: no new command, no new id; only NENGINES (15) and the engine-name list in `INFO`.
+
+## Tagged device preferences v1
+
+INFO appends `0x55, 1, uiCaps` after the existing `NTRK, CHAIN_ROWS` bytes.
+Only this complete tagged extension enables commands 34–38. An untagged byte
+from an experimental firmware is not a SONG or preference capability.
+Command 33 remains SONG. Older editors can ignore the additional INFO bytes.
+
+`uiCaps`: bit 0 palette, bit 1 font weight (retired: firmware since the 1.0 UI has one
+weight and no longer sets it), bit 2 reserved for a MIDI monitor, bit 3 favorites. This build
+advertises 9 (palette and favorites).
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 34 UI_STATE | none | caps, palette, font, monitor, filter, favoriteSig u28, bankSig u28 |
+| 35 UI_SET | id, value | rc, id, value, UI_STATE payload |
+| 36 UI_PALETTES | none | count, count × name string |
+| 37 FAV_GET | engine, start v14, count 1..32 | rc; on success: engine, start v14, count, count × on/off |
+| 38 FAV_SET | engine, preset v14, on/off | rc; when applied: engine, preset v14, on/off |
+
+UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: GREY GREEN AMBER ICE VIOLET ROSE PAPER
+POLICE NIGHT MONO; 1.0.2: GREY is the MONO of 1.0.1, MONO a new black and white palette), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
+fields are 127.
+Both u28 signatures are four least-significant-first 7-bit bytes; compare them
+to refresh changed favorites and user slots. Factory references use stable
+engine/preset ids; engine NENGINES denotes a user slot (15 since 0.2.5, which added engine 14 WAVE; 14 before: take it
+from `INFO`, never as a constant). An empty user slot
+cannot be marked. Factory DRUM sounds use the same favorite path.
+
+rc 0 = applied and saved; 1 = invalid arguments; 2 = unsupported feature;
+3 = applied in RAM but not saved (no flash or a failed write);
+4 = applied and queued to save after STOP. A failed settings write is retried
+by the same persistence path as the panel. These changes never stop playback.
+Unchanged writes do not erase flash. Replies echo preference ids/values and
+favorite ranges so the editor rejects replies to a different request.
+
+## MENU settings (72, 73; 1.0.4)
+
+The device describes the settings of its MENU (HOME held) to the editor, which builds its settings from what it
+is told: no list of settings is fixed in the editor. INFO advertises `4E 01 count` after the FM6 v2 tag
+(`50 01 caps`): `count` items, MENU_DESC index 0..count−1. Firmware without the tag answers neither command.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 72 MENU_DESC | index (0..count−1) | index, id, kind, value v14, min v14, max v14, name string, then for kind 0 (max−min+1) value-name strings, for kind 1 a unit string; then (1.0.5) tab, tab-name string. An index past the list: index, 127 (no more bytes) |
+| 73 MENU_SET | id, value v14 | rc, id, value v14: the device's value after the write (clamped to min..max) |
+
+- **index** is the position in the device's list: up to 1.0.5 the menu's order; from 1.1 a new setting is appended
+  (index = id), whatever tab it shows in, so an index keeps the setting it had and an older editor lists the ones it
+  knew where they were. Shown by tab (below), each tab's items in index order, they appear as on the device. **id**
+  names the setting and never changes its meaning: a new setting takes a new id (append-only), wherever it shows in
+  the menu. Ids are 0..126; 127 means "no item". Remember settings by id, not by index.
+- **kind**: 0 an enum (the value is an index into the names, min..max), 1 a number (min..max, its unit after the
+  name; 1.2: TUNE, id 22, -50..50 "ct", the first); **2 (0.2.22): a number in tenths of its unit** (min..max, the unit string after the name exactly as kind 1; the value 4400 is shown 440.0): MASTER TUNE, id 22, 4153..4662, unit "Hz". An editor shows a kind it does not know read-only, or not at all.
+- Values are v14 like the rest of the protocol, so a setting may go past 127 or below 0; up to 1.2's TUNE every value
+  was 0..9; 0.2.22's TUNE goes to 4662, which one v14 carries (14 bits, -8192..8191): nothing in the protocol had to change for the 510 steps.
+- **rc** as `UI_SET`: 0 applied and saved, 3 applied in RAM only (no flash or a failed write; retried by the
+  settings path), 4 applied and saved after STOP (T0227: also a setting with more than two values, BASS MONO, WIDTH, COMP, SIDECHAIN and the MENU rows that are not switches, which is saved as the unit's own knob saves it, once it has rested about 2 s and nothing sounds: a dragged slider erases the flash once, not once per step); 1 an unknown id (the request's id and value are echoed,
+  nothing changes). A value out of range is not refused: it is clamped and the reply says which value the device
+  took. A wrong argument length gets no reply. 1.2: MIDI IN (21) and TUNE (22) answer rc 0: they are not settings
+  but the current project's `G_ROUTE` and `G_TUNE` (global ids 14 and 3), set as a `SET` of that global sets them
+  (a `GET` / `DUMP` reads the same value, the device pushes `CHANGED` for it while WATCHing); they are kept with the
+  project (PROJECT SAVE, the autosave), not in the settings record, and a project load brings its own values.
+- A MENU_SET is applied exactly as the menu's KNOB 1 / OCT + applies it (`src/menu_items.c` `menu_put`, shared by
+  both), and saved through the same settings record (`settings_save`; unchanged values write nothing; MIDI IN and
+  TUNE: the project's, above). If the
+  device shows the MENU page, it redraws with the new value. There is no push: an editor that wants to follow
+  changes made on the device reads MENU_DESC again (for instance when its settings page opens).
+- CALIBRATION, TEST and ABOUT have no value and are not offered. (0.2.2: the item that was INFO (1.2) is now TEST, the CPU test screen, present in developer builds only (`LRRY_TEST_MODE=1`; the release has no TEST row); its menu id stays reserved and no other id changes, so nothing in an editor moves.) COLOR (id 0) is the same setting as `UI_SET` id 0.
+- **tab** (1.0.5): the MENU shows its settings in tabs (ALGORITHM steps between them on the device). After the
+  names (kind 0) or the unit (kind 1) the reply carries the item's tab: its index (0.., the device's tab order,
+  left to right) and its name (≤ 12 characters). An editor that wants the device's grouping shows the items by tab,
+  in tab-index order, each tab's items in index order; the tab names come from the device, as the item names do.
+  Firmware 1.0.4 ends the reply after the names: no tab (show the items as one list). An editor written for 1.0.4
+  reads exactly the names and ignores what follows, so the tab changes nothing for it. Tab indexes are not ids: an
+  item may move to another tab in a later firmware, and tabs may be added (1.2: MIDI, index 3, came in before SYSTEM,
+  whose index went from 3 to 4); remember settings by id and show the tabs by the names the device gives.
+  A tab may hold items with no value that are not offered (this firmware: SYSTEM also holds CALIBRATION, TEST (was INFO) and
+  ABOUT).
+  For a kind it does not know, an editor cannot find the tab (it does not know that kind's bytes).
+
+This firmware (count 25; tabs 0 DISPLAY, 1 CONTROL, 2 AUDIO, 3 MIDI, 4 SYSTEM (1.2; before: 3 SYSTEM); 1.0.5 had the
+first 12, 1.1 the first 15, 1.2 before SCALE LEDS the first 16, before SCREEN OFF the first 17, 1.1.5 the first 18, 1.2
+before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24):
+
+| index | id | name | kind | values (min 0) | default | tab |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | COLOR | 0 | 0..9: GREY GREEN AMBER ICE VIOLET ROSE PAPER POLICE NIGHT MONO (the order of `UI_PALETTES`) | GREY | 0 DISPLAY |
+| ~~1~~ | | ~~STYLE~~ | | retired in 0.2.2 (FLAT is the only look; a stored LINE is ignored). The id is never reused. | | |
+| ~~2~~ | | ~~LARGE~~ | | retired in 0.2.2 (the LARGE view was removed; a stored ON is ignored). The id is never reused. | | |
+| 3 | 3 | ANIM (0.2.14: named ANIMATION) | 0 | 0 ON, 1 OFF, 2 IDLE (1.2: ON plus the LEDs' idle animation; firmware before: max 1) | ON | 0 DISPLAY |
+| 4 | 4 | LEDS | 0 | 0 OFF, 1 LOW, 2 MEDIUM, 3 MAX (darkest first, as the menu steps them) | MEDIUM | 0 DISPLAY |
+| 5 | 5 | HOLD (0.2.14: named BUTTON HOLD) | 0 | 0 "0.3 s", 1 "0.4 s", 2 "0.5 s", 3 "0.6 s" | 0.4 s | 1 CONTROL |
+| 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON | OFF (0.2.14: ON, see below) | 1 CONTROL |
+| ~~7~~ | | ~~FX LATCH~~ | | retired in 0.2.2 (the FX hold layer was removed; a stored ON is ignored). The id is never reused. | | |
+| - | 8 | (BPM LOCK: retired in L/RRY, id never reused; the indexes after it are their id - 1) | | | | |
+| 9 | 9 | SPEAKER EQ (0.2.14: named OUTPUT EQ) **RETIRED in 0.2.19** (the low cut and BASS+ are removed: not listed, a `MENU_SET` answers rc 1 and changes nothing, never reused) | 0 | 0 FLAT, 1 LOWCUT, 2 BASS+ | FLAT | 2 AUDIO |
+| ~~10~~ | | ~~USB LEVEL~~ | | **RETIRED in 0.2.25** (USB audio is always at the fixed level, that of the default MASTER position; the MENU row is removed: not listed, a `MENU_SET` answers rc 1 and changes nothing, never reused; `MENU_DESC` lists 33 items instead of 34; a stored bit 8 of the settings byte stays as it is, unread) | | |
+| 11 | 11 | USB SERIAL | 0 | 0 ON, 1 OFF | ON (0.2.14: OFF, see below) | 4 SYSTEM (up to 1.2's MIDI tab: 3) |
+| 12 | 12 | CLICK | 0 | 0 OFF, 1 REC, 2 ON (1.1) | OFF (0.2.14: REC, see below) | 2 AUDIO |
+| 13 | 13 | CLICK LEVEL | 0 | 0 LOW, 1 MID, 2 HIGH (1.1) | MID | 2 AUDIO |
+| 14 | 14 | COUNT-IN | 0 | 0 OFF, 1 "1 BAR", 2 "2 BARS" (1.1) | OFF | 2 AUDIO |
+| 15 | 15 | RESTORE LAST | 0 | 0 ON, 1 OFF (1.2) | ON | 4 SYSTEM (up to 1.2's MIDI tab: 3) |
+| 16 | 16 | SCALE LEDS | 0 | 0 OFF, 1 ON (1.2; 0.2.5: 0 AUTO, 1 OFF) | OFF (L/RRY: AUTO) | 1 CONTROL (0.2.14: 0 DISPLAY) |
+| 17 | 17 | SCREEN OFF | 0 | 0 NEVER, 1 "5 MIN", 2 "15 MIN", 3 "30 MIN", 4 "60 MIN" (1.1.5) | NEVER (1.1.5.1; 1.1.5: 30 MIN) | 0 DISPLAY |
+| ~~18~~ | 18 | ~~SCOPE~~ | 0 | 0 OUT, 1 MIX (1.2). **Retired in 0.2.14** (the scope always draws OUT, after MASTER; a stored MIX is ignored). Not listed; a `MENU_SET` answers rc 1. Never reused. | OUT | 0 DISPLAY |
+| 19 | 19 | STEP PREVIEW | 0 | 0 OFF, 1 ON (1.2) | OFF | 1 CONTROL |
+| 20 | 20 | CHORD ENTRY (0.2.14: named STEP KEYS) | 0 | 0 HOLD, 1 ADD (1.2; 0.2.14: 0 WRITE, 1 ADD, the same values) | HOLD (WRITE) | 1 CONTROL |
+| (21) | 21 | MIDI IN | | **0.1: retired, never reused, not offered** (MIDI IN is GLO > CHANNELS K3 on the device; the value is still the project's `G_ROUTE`, global 14: 0 OWN CH, 1 SELECTED, settable as a `SET` of that global) | | |
+| 22 | 22 | TUNE | 1 (0.2.22: **2**, a number in tenths) | -50..50, unit "ct" (1.2: the project's `G_TUNE`, global 3, cents); **0.2.22: 4153..4662, unit "Hz", shown value / 10 (415.3 .. 466.2 Hz, 510 steps), default 4400 = 440.0 Hz**: the same `G_TUNE`, now the frequency of A4 in 0.1 Hz; v14 carries it whole (no coarse / fine pair); a stored value out of range reads 4400 | 0 (4400) | 2 AUDIO |
+| ~~23~~ | 23 | HOME (0.1: named OVERVIEW; **retired in 0.2.14** with the OVERVIEW page: not listed, a `MENU_SET` answers rc 1, never reused; the byte is kept as stored) | 0 | 0 SCOPE, 1 TRACKS (1.3; 0.1: PARTS), 2 LEVELS (1.5; 0.1: no such value, max 1) | SCOPE | 0 DISPLAY |
+| ~~24~~ | | ~~HELP~~ | | retired in 0.2.2 (the on-device hints were removed for now; a stored ON is ignored). The id is never reused. | | |
+| 25 | 25 | HOME OPENS (0.1) | 0 | 0 MORPH, 1 MODE (0.1 .. 0.2.13: also 3 OVERVIEW; 0.2.14 .. 0.2.25: also 2 MIXER; **0.2.25 layout round: max 1**, the MIXER is GLO's first page; a SET of 2 or more is clamped to 1 MODE, a stored 2 or 3 reads as MORPH) | MORPH | 1 CONTROL |
+| 26 | 26 | CPU METER (0.2.9) | 0 | 0 ON, 1 OFF: the thin CPU load bar under the header's battery (stored as a bit that is clear = ON, so every older settings record reads ON) | ON | 0 DISPLAY |
+| 27 | 27 | MODE RECALL (0.2.11; 0.2.14: named MULTI LOAD, values 0 KEEPS MODE, 1 SETS MODE) | 0 | 0 OFF, 1 ON: ON = loading a multi (the page, MIDI program change, the editor) also sets the output MODE saved in it; OFF = a load keeps the unit's current MODE (stored as bit 6 of settings byte [15][24], clear = OFF, so every older record reads OFF). (Until 0.2.22 the CPU TEST multis M13..M16 of developer builds always set theirs; since 0.2.23 every slot follows the setting) | OFF | 1 CONTROL |
+| 20 | 28 | ARP (0.2.14, GLO > MODULES K1) | 0 | **1.1: 0 OFF, 1 FOLLOWS PATCH, 2 KEEPS RUNNING** (max 2, default 1; an older editor's 0 and 1 mean OFF and FOLLOWS PATCH as before). OFF = no part's arp plays, whatever its MODE; keys and MIDI notes play directly (SPEC 5f). FOLLOWS PATCH = a patch load gives the part its own arp, or gives the earlier one back, as before. KEEPS RUNNING = a patch without an arp of its own (MODE OFF; INIT too) leaves the part's arp, chord keys and sequencer pattern as they are, and the arp's held and latched notes and its phase survive the load (the voices end, the MIDI OUT note-offs are sent); a patch with an arp takes over; a multi or project load works as before; STOP ALL still stops everything | FOLLOWS PATCH | 4 MODULES |
+| 21 | 29 | SEQ (0.2.14, MODULES K2) | 0 | **1.1: 0 OFF, 1 FOLLOWS PATCH, 2 KEEPS RUNNING** (max 2, default 1). OFF = no stored step plays (PLAY, MIDI Start, the count-in), nor the arp's SEQUENCER mode; editing and STEP PREVIEW stay. KEEPS RUNNING = a patch load neither lends a SEQUENCER pattern to the part nor gives one back | FOLLOWS PATCH | 4 MODULES |
+| 22 | 30 | SENDS (0.2.14, MODULES K3) | 0 | 0 OFF, 1 ON: OFF = the chorus, delay and reverb buses and SPACE skipped (the dry mix, after a 22 ms fade) | ON | 4 MODULES |
+| 23 | 31 | PART FX (0.2.14, MODULES K4) | 0 | 0 OFF, 1 ON: OFF = each part's SAT, INSERT, EQ and DUCK skipped (after a 22 ms crossfade) | ON | 4 MODULES |
+| 24 | 32 | PERF LEAVE (0.2.14, MENU > CONTROL) | 0 | 0 FADE, 1 KEEP: FADE = leaving PERFORM, a sound load and a multi load glide PERFORM's SPACE and KILL to neutral (0.4 s at most); KEEP = they stay (SPEC 5e) | FADE | 1 CONTROL |
+| 25 | 33 | BASS MONO (0.2.19, the GLO page BASS MONO; 0.2.25 layout round: STEREO MASTER K1; no MENU row) | 0 | 0 OFF, 1 "40Hz", 2 "50Hz", 3 "63Hz", 4 "80Hz", 5 "100Hz", 6 "125Hz", 7 "160Hz", 8 "200Hz", 9 "250Hz", 10 "315Hz", 11 "400Hz": the master output is mono below that frequency and stereo above it (SPEC 5h); not in DUEL mode | OFF | 5 MASTER |
+| 26 | 34 | THRESH (0.2.21, the GLO page COMP K1; 0.2.25 layout round: COMPRESSOR K2; no MENU row) | **1** (a number) | -40 .. 0, unit "dB" (the value is the dB; the page's index is the value + 40): the master compressor's threshold, in dB of the output at the default MASTER (SPEC 5j) | -17 | 5 MASTER |
+| 27 | 35 | RATIO (COMPRESSOR K1 since the 0.2.25 layout round; COMP K2 before) | 0 | 0 "OFF" (0.2.25 layout round; "1:1" before: the compressor is off and not run; the stored values are unchanged), 1 "1.5:1", 2 "2:1", 3 "3:1", 4 "4:1", 5 "6:1", 6 "8:1", 7 "12:1", 8 "INF" | 1:1 | 5 MASTER |
+| 28 | 36 | ATTACK (COMP K3) | 0 | 0 "0.1 ms", "0.15 ms", "0.2 ms", "0.3 ms", "0.5 ms", "0.7 ms", "1 ms", "1.5 ms", "2 ms", "3 ms", "5 ms", "7 ms", 12 "10 ms", "15 ms", "20 ms", "30 ms", "50 ms", "70 ms", 18 "100 ms" (19 names) | 10 ms | 5 MASTER |
+| 29 | 37 | RELEASE (COMP K4) | 0 | 0 "20 ms", "30 ms", "50 ms", "70 ms", "100 ms", "150 ms", 6 "200 ms", "300 ms", "500 ms", "700 ms", "1 s", "1.5 s", 12 "2 s" (13 names) | 200 ms | 5 MASTER |
+| 30..33 | 38..41 | P1 CH, P1 NOTE, P2 CH, P2 NOTE (0.2.22, GLO > SIDECHAIN) | **1** | see the 0.2.22 paragraph below | 10, 36, 10, 36 | 6 SIDECHAIN |
+| 33 | 42 | WIDTH (0.2.23, the GLO page WIDTH K1; 0.2.25 layout round: STEREO MASTER K2; no MENU row) | **1** (a number) | 0 .. 200, unit "%": the master stereo width, 100 = as it is (the stage off), 0 = mono (SPEC 5l) | 100 | 5 MASTER |
+
+**0.2.19, BASS MONO: `MENU_DESC` lists 25 items** (`4E 01 25`): the 24 before it (the 25 of 0.2.18 less the retired **id 9 OUTPUT EQ**) and then **id 33 BASS MONO** (index 24, tab 5 MASTER, kind 0, values **0 OFF, 1..11 = 40 50 63 80 100 125 160 200 250 315 400 Hz**, max 11, default 0 OFF). **It is a sound setting, not a MENU one** (owner: "MENU is for settings not related to the sound design"): the unit has it on the GLO page BASS MONO (the master-stage page, to be renamed MASTER later), K1; MENU_DESC lists it like TUNE (id 22) lists the project's G_TUNE, with the tab index **5 and the tab name "MASTER"** (no MENU tab on the unit; MODULES is tab 4 the same way). The editor shows it as the MASTER card of the GLOBAL tab, not in SETTINGS. A `MENU_SET` sets it (the audio side takes it within a frame); a value past 11 is clamped to 11; the reply's rc is 0 (the value belongs to the music: it is kept in the project and the autosave (byte 65), not in the settings record; since 0.2.21 not in the multis either: a master effect belongs to the unit, byte 5 bits 1..4 of a multi record are written 0 and ignored). In DUEL mode the unit does not draw the card or run the stage; the editor cannot see the mode, so the setting stays listed and settable, and the editor says so beside it. Ids 0..32 are unchanged.
+
+**0.2.23, WIDTH and SATURATOR: `MENU_DESC` listed 35 items; since 0.2.25 it lists 34** (`4E 01 34`; **the saturator is removed: id 43 DRIVE is gone, not reused, and a `MENU_SET` of 43 answers rc 1 like any unassigned id; a stored DRIVE byte is ignored**): the 33 before them and then **id 42 WIDTH** (index 33, tab 5 MASTER like BASS MONO and COMP; every existing id unchanged, the next free ids). It is the master WIDTH (the GLO page WIDTH, SPEC 5l), a **device setting**: kept in the settings record's bytes `favorites.factory[15][18..21]` (the tag 0xB7, WIDTH, 0 (0.2.23 / 0.2.24: DRIVE; ignored since 0.2.25), BASS MONO + 1; a record without the tag reads the defaults; the record's size and magic are as ever, so nothing is refused), **never in a multi, a project or a patch**. It is a **number** (kind 1, min 0, no names): max 200, unit "%", default 100 (= off). A `MENU_SET` clamps to the range, applies it as the knob does (the audio side takes it within a frame) and saves the settings record (rc 0, or 3 / 4 as for the others), the reply carries the value taken. In DUEL mode the unit draws no card and runs no stage (the page says why); the editor cannot see the mode, so it stays listed and settable, and the editor's MASTER card says so. layout.json: `MSTG` (the WIDTH descriptor alone since 0.2.25), the pages WIDTH and MASTER (graph `MSTG`, id `G_WD`, the pseudo id `G_COUNT + 5`; MASTER holds `G_BM` alone). No CC, no MIDI LEARN, no MORPH.
+
+**0.2.22, SIDECHAIN: `MENU_DESC` lists 33 items** (`4E 01 33`): the 29 before it and then **ids 38 P1 CH, 39 P1 NOTE, 40 P2 CH, 41 P2 NOTE** (index 29..32, tab 6 SIDECHAIN; every existing id unchanged, the next free ids). They are the ducker's **MIDI setup** (the GLO page SIDECHAIN, SPEC 4.x): the MIDI channel and the note that start a part's DUCK when that part's DUCK `SRC` is MIDI. A **device setting**: kept in the settings record (`favorites.factory[15][14..17]`: 0 = the default, a channel is stored 1 + 0..15, a note 1 + 0..127), **never in a multi, a project or a patch**, so a load never changes it, and settable whatever the SRC is. All four are **numbers** (kind 1, no names, unit empty): a channel min 1, max 16, default 10; a note min 0 (ANY), max 127, default 36 (C2; the editor names it with layout.json's `SIDECH[1]` format, as the DUCK NOTE once was). A `MENU_SET` clamps to the range, applies it at once and saves the settings record (rc 0, or 3 / 4 as for the others), the reply carries the value taken. The editor shows them as the SIDECHAIN card on the MIDI tab of the GLOBAL column, not in SETTINGS. layout.json: `SIDECH` (the two descriptors, channel and note), the page SIDECHAIN has no parameter ids (`ids` all -1, `global` 1). **The DUCK parameters changed with it:** `SRC` (id 111) is now 0 PUMP, 1 PART, 2 MIDI (max 2; it was 2..17 CH1..CH16), and `NOTE` (id 106) is retired (label "-", never read); DUCK 1/2's second knob is `RATE` for PUMP, `THR` for PART and empty for MIDI. The record versions moved with the meaning (multi 6, project revision 4, the patch store's chunk 2): a record of the earlier formats is refused.
+
+**0.2.21, COMP: `MENU_DESC` lists 29 items** (`4E 01 29`): the 25 before it and then **ids 34 THRESH, 35 RATIO, 36 ATTACK, 37 RELEASE** (index 25..28, tab 5 MASTER like BASS MONO; every existing id unchanged, the next free ids). They are the master compressor's four cards (the GLO page COMP, SPEC 5j), a **device setting**: kept in the settings record's old `rsv` word (`0xC7 << 24 | THRESH | RATIO << 6 | ATTACK << 10 | RELEASE << 15`; a record without the tag reads the defaults; the record's size and magic are as ever, so nothing is refused), **never in a multi, a project or a patch**. THRESH is a **number** (kind 1, min -40, max 0, unit "dB", default -17, no names: the reply is `... name, unit, tab` as TUNE's); the other three are lists of names (kind 0, min 0; RATIO 9 names, ATTACK 19, RELEASE 13: the names carry their unit, "10 ms", "1.5 s", "4:1"). RATIO "1:1" is the compressor off, the default: a new unit and every older record read it. A `MENU_SET` clamps to the range, applies it as the knob does (the audio side takes it within a frame) and saves the settings record (rc 0, or 3 / 4 as for the others), the reply carries the value taken. In DUEL mode the unit draws no COMP card and does not run the stage; the editor cannot see the mode, so the settings stay listed and settable, and the editor says so beside them. The editor shows them as the COMP card of the GLOBAL tab, not in SETTINGS; it hides THRESH, ATTACK and RELEASE while RATIO is 1:1 (the unit does the same). No CC, no MIDI LEARN, no MORPH.
+
+**0.2.14, PERF LEAVE: `MENU_DESC` lists 25 items** (`4E 01 25`): the 24 below and then **id 32 PERF LEAVE** (index 24, tab 1 CONTROL, kind 0, values **0 FADE, 1 KEEP**, default 0 FADE; max 1). FADE: leaving PERFORM, a sound load and a multi load glide PERFORM's SPACE and KILL back to neutral; KEEP leaves them (SPEC 5e). Device setting in the settings record, byte [15][10] bit 5 (set = KEEP; every older record and a new unit read FADE), never in a patch or multi. A `MENU_SET` clamps to 0 / 1 and saves the settings record (rc 0, or 3 / 4 as for the others). No CC, no MIDI LEARN.
+
+**0.2.14, GLO > MODULES: `MENU_DESC` lists 24 items** (`4E 01 24`; 25 with PERF LEAVE above): the 20 below, then **ids 28 ARP, 29 SEQ, 30 SENDS, 31 PART FX** (index 20..23; the next free ids, every existing id unchanged). They are the device's four module switches (SPEC 5f), device settings kept in the settings record (byte [15][10] bits 1..4, a set bit = OFF, so every older record and a new unit read ON; **1.1: ids 28 ARP and 29 SEQ have a third value KEEPS RUNNING, kept in bits 1 (ARP) and 2 (SEQ) of byte [15][23], a clear bit = FOLLOWS PATCH, so every older record reads FOLLOWS PATCH; the bits 6 and 7 of [15][10] are KEY VELOCITY and AFTERTOUCH and not free**), never in a patch or a multi. They are no MENU rows: the device shows them on the page GLO > MODULES, so their **tab is index 4 named `MODULES`** (no MENU tab has that index; an editor that groups by tab name shows a MODULES group). Kind 0, values **0 OFF, 1 ON** (the knob's order: left OFF, right ON), default 1 ON. A `MENU_SET` switches as the page's knob does (a value <= 0 is OFF, >= 1 ON, the reply says the value taken) and saves the settings record (rc 0, or 3 / 4 as for the others). MIDI LEARN cannot learn them; there is no CC.
+
+**0.2.14 (the owner's MENU rework): `MENU_DESC` lists 20 items** (`4E 01 20`; index order: ids 0, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 22, 25, 26, 27). **Ids 18 (SCOPE) and 23 (OVERVIEW) are retired**, as STYLE, LARGE, FX LATCH and HELP were: not listed, a `MENU_SET` to them answers rc 1 and changes nothing, never reused. No id changes its meaning or its values; only names (the device's names, which the editor shows: ANIMATION, BUTTON HOLD, OUTPUT EQ, STEP KEYS with WRITE / ADD, MULTI LOAD with KEEPS MODE / SETS MODE), one tab (SCALE LEDS: 0 DISPLAY) and HOME OPENS' range (max 2) change. The device's tabs: DISPLAY COLOR, LEDS, SCALE LEDS, ANIMATION, SCREEN OFF, CPU METER; CONTROL MULTI LOAD, HOME OPENS, KNOB ACCEL, BUTTON HOLD, STEP KEYS, STEP PREVIEW; AUDIO OUTPUT EQ, USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE; SYSTEM RESTORE LAST, BUTTON MAP (was CALIBRATION), USB SERIAL, (TEST), GUIDE, ABOUT, ERASE DATA (the rows without a value are not offered). **New defaults:** KNOB ACCEL 1 ON, USB SERIAL 1 OFF, CLICK 1 REC, on a new unit, after ERASE DATA, and once on a unit whose settings hold the old default (0 OFF, 0 ON, 0 OFF: a chosen value and the untouched default are the same bits, so both change once); a one-time flag in the settings record (byte [15][24] bit 7) keeps the user's later choice. An editor backup of an older record restored later gets the same change once.
+
+**0.2.2: ids 1 (STYLE), 2 (LARGE), 7 (FX LATCH) and 24 (HELP) are retired: `MENU_DESC` no longer lists them (the count in `4E 01 count` was 20 on 0.2.2 and is 22 since 0.2.11, which appended id 27 (21 since 0.2.9, id 26); the list walks ids 0, 3..6, 9..20, 22, 23, 25, 26, 27 in index order) and a `MENU_SET` to one of them answers rc 1 (unknown id) and changes nothing. Their bits in the settings record stay where they were (older records import unchanged; the firmware ignores them).** Every other id keeps its meaning.
+
+0.1: the MENU has four tabs (0 DISPLAY, 1 CONTROL, 2 AUDIO, 3 SYSTEM: the MIDI tab is gone, SYSTEM's tab index 4 became 3; a tab's index is no id), so the table's tab column holds Felucca's numbering for the rows above; the device's reply is authoritative. The list MENU_DESC walks is 24 items (index order: ids 0..7, 9..20, 22, 23, 24, 25).
+
+The device's AUDIO tab shows (up to 0.2.18) SPEAKER EQ, USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN and (1.2) TUNE (index 9, 10, 12, 13,
+14, 22).
+CLICK: the metronome while the transport runs: OFF, REC (while a track is armed), ON (always); CLICK LEVEL its
+level; COUNT-IN: PLAY from stop with a track armed counts in that many bars first (internal clock only). The click
+goes to the headphones / speaker, never into USB audio or a recording (README: Metronome and count-in). Applied at
+once, as on the device.
+
+RESTORE LAST (id 15, 1.2; the SYSTEM tab shows USB SERIAL and RESTORE LAST, index 11 and 15, then CALIBRATION, TEST (INFO until 0.2.2)
+and ABOUT): ON (the default)
+keeps the music as it is in an autosave while the device is stopped and idle, and brings it back at power-on; OFF
+writes no autosave and starts with the power-on sounds (README: Restore the last session). 0.2.2: a restored
+autosave starts with no part muted.
+
+SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab showed HOLD, KNOB ACCEL, FX LATCH (retired in 0.2.2), BPM LOCK and SCALE LEDS,
+index 5..8 and 16): ON shows the selected track's scale on the key LEDs outside the layers (README: Key LEDs).
+Applied at once.
+
+SCREEN OFF (id 17, 1.1.5; the DISPLAY tab shows COLOR, STYLE, LARGE, ANIM, LEDS and SCREEN OFF, index 0..4 and 17):
+after that long without input on the panel (a button, a key, a knob; not MIDI, not the editor) the screen and its
+backlight go off while the sound, the sequencer, MIDI and USB go on; the next touch wakes it and does nothing else.
+NEVER keeps it on. A change counts from then (a MENU_SET to 5 MIN does not turn it off at once). Applied at once.
+
+SCOPE (id 18, 1.2, Discussion #165; **retired in 0.2.14**: the scope always draws OUT; DISPLAY then showed COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF and SCOPE, index
+0..4, 17, 18): what HOME's oscilloscope draws. OUT (the default, as before) the sound after MASTER, so it shrinks with
+the volume; MIX the mix before MASTER (and before SPEAKER EQ and the limiter), drawn at the size MASTER
+at its top would give, whatever the knob. The metronome's click is in neither. Applied at once.
+
+STEP PREVIEW (id 19, 1.2, Discussion #169) and CHORD ENTRY (id 20, 1.2, #155; CONTROL now shows HOLD, KNOB ACCEL, FX
+LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and CHORD ENTRY, index 5..8, 16, 19, 20). STEP PREVIEW ON: on SEQ > STEP
+(the piano roll and the DRUM grid) with the transport stopped, moving the cursor with KNOB 1 or PRESETS (or the
+grid's page keys) plays the step it lands on once on the selected track, through its sound (a 1/16 at the track's
+GATE); never while playing, and it never writes. CHORD ENTRY ADD: in step recording (STEP, stopped, the track armed)
+each key adds its notes to the cursor step (up to 4) or takes them out when its note is there already, and letting
+go does not move the cursor (KNOB 1 / PRESETS move it); HOLD (the default) is the keys held together writing the step
+and moving on, as before. The editor's own step editing (`STEP_SET`) is not affected by either. Applied at once.
+
+MIDI IN (id 21, 1.2; the MIDI tab, its only row) and TUNE (id 22, 1.2; AUDIO's last row): the project's MIDI IN
+routing and tuning, edited up to 1.1.5 on GLO > SYSTEM (ROUT) and GLO > GLOBAL (TUNE), the same values as globals 14
+and 3 (see Global ids and rc above). TUNE is the first kind 1 item: value, min -50 (`4E 3F`), max 50 (`32 40`), the
+name, then the unit "ct" (no value names), then the tab. **0.2.22: kind 2**: value 4400 (`30 62`), min 4153 (`39 60`), max 4662 (`36 64`), the name, the unit "Hz", then the tab; the editor shows value / 10 with one decimal. Applied at once (MIDI IN: a block that changes lets go of the
+notes it held, as the knob did; TUNE: the next block of sound).
+
+Example (bytes in hex): `F0 7D 46 4C 48 04 F7` asks for index 4; the reply
+`F0 7D 46 4C 48 04 04 00 02 40 00 40 03 40 4C 45 44 53 00 4F 46 46 00 44 49 4D 20 4C 4F 00 44 49 4D 20 48 49 00 49 4E 56 00 00 44 49 53 50 4C 41 59 00 F7`
+is index 4, id 4, kind 0, value 2 (`02 40`), min 0 (`00 40`), max 3 (`03 40`), "LEDS", then "OFF" "LOW"
+"MEDIUM" "MAX", then tab 0 "DISPLAY" (1.0.4 firmware: the same reply without `00 44 49 53 50 4C 41 59 00`). `F0 7D 46 4C 49 04 03 40 F7` sets LEDS to MAX and answers `F0 7D 46 4C 49 00 04 03 40 F7` (rc 0).
+`F0 7D 46 4C 49 00 32 40 F7` (COLOR 50) answers `F0 7D 46 4C 49 00 00 09 40 F7` (clamped to 9, MONO).
+`F0 7D 46 4C 49 0E 01 40 F7` sets COUNT-IN to 1 BAR and answers `F0 7D 46 4C 49 00 0E 01 40 F7` (1.1).
+`F0 7D 46 4C 49 16 74 3F F7` (TUNE -12) answers `F0 7D 46 4C 49 00 16 74 3F F7` (rc 0, 1.2). 0.2.22: TUNE is 4400 = 440.0 Hz: `F0 7D 46 4C 49 16 30 62 F7` sets it, the reply is `F0 7D 46 4C 49 00 16 30 62 F7`.
+`F0 7D 46 4C 48 19 F7` answers `F0 7D 46 4C 48 19 7F F7` (no index 25; 1.3 / 1.4: none past 23, `18`; 1.2: none past 22, `17`; before MIDI IN: none past 20, `15`; before SCOPE: none past 17, `12`; before SCREEN OFF: none past 16, `11`; 1.2 before SCALE LEDS: none past 15, `10`; 1.1 firmware: none past 14, `0F`; 1.0.5: none past 11, `0C`).
+
+HOME (id 23, 1.3, Discussions #112 / #134; L/RRY OVERVIEW, **retired in 0.2.14** with the OVERVIEW page; DISPLAY then showed COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF, SCOPE and
+HOME, index 0..4, 17, 18, 23): what the device's HOME page shows under its four cards. SCOPE (the default, as before)
+the oscilloscope; TRACKS the four tracks as rows: each track's cushion, engine icon and sound name, the 16 steps of its
+pattern's page that plays (LEN > 16: the play head's page, stopped the selected track's cursor page; a pip per page),
+a MUTE badge, the output meter; the selected track's row highlighted. Only the look changes: HOME's knobs, ALGORITHM
+and the HOME button do what they do on SCOPE. Kept in the settings record (its own byte; a value an older firmware does
+not know reads as SCOPE there). Applied at once. 1.5 (#134): LEVELS (2), the rows of TRACKS with KNOB 1..4 the LEVEL
+of T1..T4 (the GLO layer's knobs) in place of the selected track's engine's four; firmware before 1.5 reads it as SCOPE.
+
+HELP (id 24, 1.5, Discussion #156; SYSTEM now shows USB SERIAL, RESTORE LAST and HELP, index 11, 15, 24, then
+CALIBRATION, TEST and ABOUT): ON shows a short hint (key caps and a few words) in the footer for about 2 s when a page
+opens, and a second footer row under a quick layer's map. OFF (the default) shows none. A bit of the settings record
+(MENU's 1.2 flags byte, bit 3; older firmware keeps it and ignores it). Applied at once.
+
+**USB SERIAL (id 11).** The menu applies it when it closes; a MENU_SET applies it about 200 ms after its reply
+(`usb_serial_apply`), so the reply leaves first (if the device shows the MENU at that moment: when it closes).
+A change (ON <-> OFF; setting the value it already has does nothing) re-enumerates the whole device: it drops off
+the bus (its D+ pull-up off) and comes back with the other descriptors, so USB-MIDI, USB audio and the serial
+console all go away and come back. On the device the gap is about 25 ms plus one main-loop pass (`usb_retry`,
+`usb_start`), or up to 1 s when it re-enumerated in the second before; the host then debounces the attach
+(>= 100 ms), resets and enumerates the device. Measured on macOS (CoreMIDI): OFF -> ON, the reply at ~0.04 s, the
+device gone at ~0.3 s, the MIDI port gone at ~0.57 s and back at ~1.15 s; ON -> OFF, the serial port goes
+at ~0.6 s while the MIDI port was not seen to disappear at all (so do not wait for a disconnect event: after
+a real change, wait ~1.5 s and open again). What the editor sends in that window is lost, `WATCH` ends with the
+bus reset (send `INFO` and `WATCH` again after reconnecting), and a backup in progress answers rc 5 (stale).
+
+**0.2.24.** `TRACK_PARAM` / `SET` / `GET`: id **106** (the retired DUCK NOTE) is the EQ's ON / OFF switch, label `EQ`, an enum `ON, OFF` (stored 0 = ON, the default; 1 = OFF; the knob shows OFF first). **DUCK SRC** (id 111) has a fourth value, **3 OFF**, the default of a new / INIT sound (PUMP PART MIDI keep 0 1 2; a stored value past 3 is clamped to OFF). A matrix **SRC set to 0** through `SET` moves the slots after it up (the unit keeps the matrix packed; read the part back). `SET` of **G_ENGSEL** (scope 1) keeps every common parameter: only the engine and ids 119..126 change. `MENU_DESC` **items 36 ATTACK and 37 RELEASE are numbers now** (kind 1, 0..120 and 0..80: the index of a time 40 steps a decade; the editor formats them from layout.json); **33 BASS MONO's default is 8 (200 Hz)** and a `MENU_SET` of it answers rc 3 (saved in the settings record, a unit setting).
+
+### Pattern slots (job F3): one list of 32, the object format PTS3
+
+1.0 has ONE pattern list for the whole device: 32 slots P01..P32 in the backup objects 21, 22, 23 (11, 11 and 10 slots). No slot is empty and none is protected: a new unit, an ERASE DATA and an object of another format start with the 32 default patterns (`engines.c` `PATTERNS[]`, `PATTERNS_PROPOSAL.md`) as ordinary slots; a save overwrites any slot; the unit's ERASE of a slot gives its default back. The patterns that existed apart (the 16 factory ones, the 16 user slots) are this list; the arp's SEQ mode plays the part's own steps. There is no part chooser: a slot loads onto, and is saved from, the selected part.
+
+The flash map has no room for fixed 596-byte records of 64 steps for 32 slots, so an object is **compact and of variable length** (3584 bytes at most; the old object `PTS2`, 3584 bytes for six slots, is refused: no migration). Little endian:
+
+- object: `"PTS3"`, `used` u16 (the object's length, header included: equal to the length LIST reports), `nslot` u8 (11, 11, 10), `per` u8 (11: the slots an object holds; slot = object x per + index; the editor takes it from this byte), then `nslot` records one after the other.
+- record: `rlen` u16 (the bytes that follow), `flags` u8 (bit 0 CHANGED: saved by the user, the unit's ERASE gives the default back; bit 1 QUANTIZE; other bits 0), LEN (1..64), DIV (0..16), SWING (0..100), GATE (1..127), `nlen` u8 (0..12), the name (`nlen` printable characters, no padding), `nst` u8 (0..64: the steps stored; the later steps are empty steps), `nst` compact steps.
+- step: `c0` = time (bits 0-1: 0 NOTE, 1 TIE, 2 REST) | accent << 2 | slide << 3 | RATCH (hits - 1, 2 bits) << 4 | code << 6, then by code: 0 nothing (no note, velocity 0, chance 0, nudge 0); 1 note, velocity (one note, chance 100, nudge 0); 2 `n | c << 3` (n notes in use 0..4, c note bytes that follow 0..4), velocity, chance byte (0..101), nudge byte (0..15, the 4 bits of `ps_pack_step`), then c notes. Code 3 is never written. The empty step a track starts with (time REST, nothing else: `c0` = 2) after the last real step is not stored.
+- a SAVE that does not fit its object (the 11 slots of an object share its 3584 bytes: about eleven 64-step patterns with chords, never ordinary patterns) is refused by the unit ("PATTERN LIST FULL"), nothing is changed; a PUT of an object that is larger than 3584 bytes is rc 1.
+
+The web editor's own form of a slot (and of the files `lrry-patterns`, version 1) is the 596-byte record `used 0xA7, version 2, LEN, DIV, SWING, GATE, QUANTIZE, flags (bit 0 CHANGED), name (12, zero padded), 64 x 9-byte steps` (FUN11's packing, `patslot.c ps_pack_step`); `web/editor/patslot.js` converts it to and from the objects (`parsePatObject`, `buildPatObject`). The archive keeps its version and ids (21..23); a file made by an older editor holds PTS2 objects, which the editor refuses with the reason.
+
+**Shown names (owner, 2026-10-25).** The wire and `layout.json` keep the stored names; the screens say the words. The engine **PHYS** is shown **PHYSICAL** (unit: `params.c eng_shown`; editor: `labels.js engineShown`, applied by `layout.js engineLabel`); the engine list on the wire still carries `PHYS` and is the key of patches, the factory sounds and the icons. LFO 1 and LFO 2 TRIGGER value `NOTE` (stored 0) is shown **FIRST NOTE**: the LFO restarts only when a note starts while no other key is held (`voice.c`), not on every note. The matrix sources 16 and 17 are named `BREATH` and `FOOT`. The matrix destination and the AMP ENV DEST card stay SATURATION; the effect is the SATURATOR and DRIVE is its control (FX page). WHEEL, PHYSICAL and VOICE labels and values: `params.c LBL_SHOWN`, `VAL_SHOWN` and `labels.js` (NAMES_APPLIED_V1.md lists each).
+
+**Source round, 2026-10-25 (owner).** (1) The same shown-name rule as above: the wire and `layout.json` keep the stored names (WAVE tables SAWSQ ODD HARM RESO DIGI HOOVR WOBBL USR1..3, scales CHR..DIMWH, chord TYPE DIA3..POW, LOFI BITS 4BIT 4B/2 8BIT 1BIT STEP, ARP modes UP+8 ORD, HOLD ARP, clock TRS, DUCK SRC PUMP PART MIDI, LFO TRIGGER FREE, MIDI IN OWN CH / SELECTED); the unit (`params.c VAL_SHOWN`, `LBL_SHOWN`, `desc_shown`, `mod.c mod_dst_name`, `menu_items.c MI_LABEL`) and the editor (`labels.js`) say the approved words. MIDI IN (global 14) is shown OWN CHANNEL / ANY CHANNEL; stored 0 and 1 as before. (2) **FM6 AMP ENV knobs.** For an FM6 part the four AMP ENV parameters (ids 1 to 4, ATTACK DECAY SUSTAIN RELEASE) keep their stored range 0..127 and their direction (a higher value is longer or higher) but are shown as the DX7 number 0..99 of the part's loudest carrier operator: new format code **34** (`F_N99`, `(v * 99 + 63) / 127`, no unit). `layout.json` carries these four descriptors as `FM6ENV`; `layout.js descOf` uses them while the engine is FM6 (ENV SYNC does not apply there). The unit moves the four values itself when a sound is loaded, an operator is edited or the ALG macro is turned (`eng_fm6.c fm6_env_look`), so the editor sees them change as it sees SLOT change. The matrix destinations AMP ENV ATTACK..RELEASE stay refused on FM6.

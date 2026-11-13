@@ -1,0 +1,1162 @@
+{
+ "format": "lrry-patches",
+ "version": 1,
+ "app": "L/RRY editor",
+ "firmware": "L/RRY 128 user sounds (tools/lrry_sounds_128.py)",
+ "source": "L/RRY 128 sounds",
+ "patches": [
+  {
+   "number": 1,
+   "name": "DIRTY BASS",
+   "engine": "ANALOG",
+   "category": "BASS",
+   "saved": true,
+   "crc32": "e5cb95c1",
+   "record": "kwAAAPoAAURJUlRZIEJBU1MAAC41AQEygUCGc4uejKWPSpJHkzyUL5hOnTSeN5+hoDGmNKdLqKGpUbZEtyu5RbqRu1W9Qb5Av0BNhH4HCAjqHkYABiBo///bPgAQAKYEAECXrn1fQUtfh0FCaWVCQ3VVQXlTTEklQ0JHRVtKR39OSkVFQI9KfUVBQWmOQ18CAAMA"
+  },
+  {
+   "number": 2,
+   "name": "FM BASS",
+   "engine": "ANALOG",
+   "category": "BASS",
+   "saved": true,
+   "crc32": "6ffb7d34",
+   "record": "kAAAAPoAAUZNIEJBU1MAAAAAAC0zAQEwgUCERoZzi56MpY0rjzqRR5NFlFOWR5xGnTSfpKA5okijXbZBtzW5Q7pbu0u+QL9ATbQ/BwgImx4CAAYgaP//234QAACmBABAl5t9Yk9fQUFvVUJLTVVBSVVCeTRDQkdJXzNHf05KRUVAjEB9S0FBQXOhQ1ECAAMA"
+  },
+  {
+   "number": 3,
+   "name": "SAW BASS",
+   "engine": "ANALOG",
+   "category": "BASS",
+   "saved": true,
+   "crc32": "3a4f4df6",
+   "record": "lAAAAPoAAVNBVyBCQVNTAAAAAC03AQE0gUCGaYuejKWNUY9EkUqTRJVBlyudNJ+koDWlQ6Y0p0moc6lNtkG3M7lEulG7Tb1BvkC/QE3KGwcICMEeAgEGIGj/f9t+ABAApgQAQJekfUpMX2VBRWlfQkxIW0F6MUpmREVJJUd/TkpFRURyQJFVg4NDQUFsoUNpAgADAA=="
+  },
+  {
+   "number": 4,
+   "name": "SQUELCH BASS",
+   "engine": "ANALOG",
+   "category": "BASS",
+   "saved": true,
+   "crc32": "68a67c1c",
+   "record": "jgAAAPoAAVNRVUVMQ0ggQkFTUzMrAQEogUCFRYZpikGLnoylj0eQSpRPnEOdNJ+hoDa2QbcvuUS6W7tRvkC/QE2MqQcICDVeVgAGYGr//9t+EAAApgQAQI+ufUGhQaE6fWlCUUFFYpdCQ2ZRTHpTQUhPREVMSkhVR39OSkVFQI9Ag2VEQUFpkUN5AgADAA=="
+  },
+  {
+   "number": 5,
+   "name": "SUB BASS",
+   "engine": "ANALOG",
+   "category": "BASS",
+   "saved": true,
+   "crc32": "b5091320",
+   "record": "hwAAAPoAAVNVQiBCQVNTAAAAACwrAQEogUCFPIaGi56MpY88kjyTPpRQnEKdNJ+koDu2Qbc1uUO6S7tLvkC/QE0FyQcICNwcRgAGIGj/f9tcGAAApgQAl7iDh0E5SltBQWVPQkF7TktJMkV5R0l3T0d/TkpFRURyj32GQkVBQWKsQ0sCAAMA"
+  },
+  {
+   "number": 6,
+   "name": "WIDE BASS",
+   "engine": "ANALOG",
+   "category": "BASS",
+   "saved": true,
+   "crc32": "901254b3",
+   "record": "mgAAAPoAAVdJREUgQkFTUwAAAC87AQE4gEGBQIZ9i56MpY9GkUeTQ5ROl1WcRZ00n5ugK6Jbo2qksqVDqG+pW6tqtkW3K7lBul+7Vb5Av0BNxzQHCAjjHlIABiD4/2/bfgAAIKYEAECXrn2Xl0ZbiENBUWlfpEJMfFtEQkdKZVVHf05KRUVEckNvQJFVg2lCL0Fpm0NfAgADAA=="
+  },
+  {
+   "number": 7,
+   "name": "ACID LINE",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "8dad7fc2",
+   "record": "iwAAAPoAAkFDSUQgTElORQAAADIpAQEmgUCGaYurjK+PNpFLk0eUW5ZLn6GgM7ZBtyu5RLpVu1u9Qb5Av0BNrDARCBKAHjIADmBq///bfhAAAKYEAECPrn2bm0J5aWhCVUFFZZdCQ2ZPTHlYTEkhQ0JKRV02R39OSkVFQJFAg0tBQUFulENvAgADAA=="
+  },
+  {
+   "number": 8,
+   "name": "ARP LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "423ad683",
+   "record": "kAAAAPoAAkFSUCBMRUFEAAAAAC8tAQEqgUCFR4urjK+PS5BOlFWfl6ArpUOmTKiGqVurarZBtyG5Q7pVu1++QL9ATeGvEQgSUl5GAA4AaP9/234QAACmBABAj2mGQmVCSl9fckV5W0JMSGVMeitEZkZFXzFHf05KRUVEckCLQIN2REFBfKRDXwYAAwIRQxNC"
+  },
+  {
+   "number": 9,
+   "name": "BRASS LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "a2774b7f",
+   "record": "jwAAAPoAAkJSQVNTIExFQUQAADAvAQEsgUCFNourjK+NK482kjmTPJRfnjefm6Azp0mom6lNtkK3LblBulu7U75Av0BNxpURCBJPHjIADiBo///bXhgAAKYEAHORuIabm0NbVXJBRW9VQkJBRUxIZUx6K0RmRkV2TUd/TkpFRYaXkYlCRUFBc6FDaQIAAwA="
+  },
+  {
+   "number": 10,
+   "name": "CHIP LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "564cdf3f",
+   "record": "lAAAAPoAAkNISVAgTEVBRAAAAC81AQEygUCLq4yvj0eRSpNElFGXW5xDn6GgM6JcpUOmTKhvqU+rSrZFty25QrpRu1O9Qb5Av0BNWkgRCBIOHjIADiBo/3/bfiAAAKYEAECPuHmbhkNHnmhBQ4dKQUx8X056VURCSkNCSkd/TkpFRURyQImkfVBBQUFeoUNHAgADAA=="
+  },
+  {
+   "number": 11,
+   "name": "FAT LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "8d13e621",
+   "record": "kAAAAPoAAkZBVCBMRUFEAAAAAC8xAQEugUCGc4urjK+PS5JKkzuUK5hRnjOfoaAtp02ooalTtkS3K7lBumW7Vb1BvkC/QE2PyxEIElgeMgAOIGj/f9t8EQAApgQAT5G4ipuXQ19bckFFeVtCTHpbTEhVREVRQ0JKR39OSkVFRHKXho+PQZFBQXyXQ1sCAAMA"
+  },
+  {
+   "number": 12,
+   "name": "FIFTHS UP",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "74b59620",
+   "record": "nAAAAPoAAkZJRlRIUyBVUAAAAC89AQE6gEGBQIZRh0CLq4yvj0eRSpNElFGXW5xFn5egL6Jbo2qkjKVHpkeoeaklq1K2RLcruUK6UbtVvkC/QE3f5xEIEiQeMgAOYOj/b9t8IAAApgQAVZGzipuXQ2lVckJRRX1boEFMe19FSSVDQkpHf05KRUVEckNvl32PUEFBQX2hQ1UCAAMA"
+  },
+  {
+   "number": 13,
+   "name": "FLUTE SOLO",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "5d46c471",
+   "record": "kwAAAPoAAkZMVVRFIFNPTE8AADAzAQEwgUCLq4yvj0SRS5NFlUGXJZxCn6GgM6VBpkyoc6lPrk2vG7ZBty+5Q7pLu1G+QL9ATTHmEQgSyx4yAA5gav9/234AAACmBAB5j7iJl5tDW0tyQlVBQn1PQkx6VUxIUkRFTkNCSkd/TkpFRURyfZGbiYNDQXywQ1ECAAMA"
+  },
+  {
+   "number": 14,
+   "name": "FM LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "a0ba78f4",
+   "record": "lAAAAPoAAkZNIExFQUQAAAAAAC81AQEyglWLq4yvjVuPR5FKk0SUUZdbnEafm6AxolmjWaVCpjSoc6lRtkG3LblEulG7U75Av0BNDTcRCBImHjIADmBo///bfAAAAKYEAE+Rs4qbl0NVW3JCTUSDUkJLTVFLeltMRUtDdkxEXjNHf05KRUWXho9pQkFHpENRAgADAA=="
+  },
+  {
+   "number": 15,
+   "name": "FOLD LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "ee341b6b",
+   "record": "kgAAAPoAAkZPTEQgTEVBRAAAADExAQEugUCCVYU2i6uMr5I5kzyUX5xHn5ugMaJkp0uofalRtkO3K7lBulu7Vb1BvkC/QE3J3REIEgieMgAOYGj//9t8EAAApgQAT5Gzijabl0NSX3JCUUF9VUJDTFVMe19LSSVFeVFFb0tHf05KRUWXho9bQUFBfqFDVQIAAwA="
+  },
+  {
+   "number": 16,
+   "name": "FUZZ LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "46ac5f54",
+   "record": "jwAAAPoAAkZVWlogTEVBRAAAADAvAQEsgUCFR4urjK+PTZBRlFufm6AzpUOnS6h9qU+rcbZEtyu5Qrppu1W9Qb5Av0BN+pwRCBJ6XjIADmBo/3/bXCEAAKYEAE+RuIlCm5dDaYdyQk1CfVtCTHpfTEhbREVVQ0JKR39OSkVFRHKRkYlCj0FBeI5DUQIAAwA="
+  },
+  {
+   "number": 17,
+   "name": "HOLLOW LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "e5606fd4",
+   "record": "jgAAAPoAAkhPTExPVyBMRUFEADEtAQEqhUeLq4yvj0uQTpRVnEOfm6AxokelQaZMqH2pT7ZBty25Q7pRu1O+QL9ATY0GEQgSl14yAA5g6P9/214hAACGBABVkbOKQpuXQ2lbckJNRHlbXkJMe19LSSVFeVFDQkpHf05KRUVEck+Xho9Cj0FBWENVAgADAA=="
+  },
+  {
+   "number": 18,
+   "name": "LASER LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "55c8b9b6",
+   "record": "jAAAAPoAAkxBU0VSIExFQUQAAC8tAQEqgUCLq4yvj0WRTpNGlUGXIZxEn5ugL6J2qHmpU7ZCtyu5RLpRu1W+QL9ATXqQEQgS9h4yAA4gaP//33oAAACmBABAj66Gm49DW1VoQUOGZUJCQVFLTF9Me19LSSVFeVFDQkpHf05KQEB9g0NBZaFDaQIAAwA="
+  },
+  {
+   "number": 19,
+   "name": "OCTAVE LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "079e719b",
+   "record": "jwAAAPoAAk9DVEFWRSBMRUFEAC4xAQEugUCGX4dAi6uMr49HkUqTRJRRl1ucQ5+boDGmTKiRqVG2QrcruUG6W7tVvkC/QE2hNREIEogeMgAOYGj/f9t8AAAApgQAT5G4iZuXQ0pVckJNQ31VQkx5WExJIUNCSkVSNkd/TkpFRURykZGKaUJBVaFDVQIAAwA="
+  },
+  {
+   "number": 20,
+   "name": "PORTA LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "30aded4a",
+   "record": "igAAAPoAAlBPUlRBIExFQUQAAC8rAQEogUCLq4yvj0uSSpM7lCuYUZ+boDOmNKiGqU+2QbcruUS6UbtVvkC/QE1MnxEIEs8eMgAOYGr/f9t8AAAApgQAT5GzipuXQ19laEJvQUV9X0JMSV9CeS9DQktFb0tHf05KRUVEcpeGj0VBQXyhQ1sCAAMA"
+  },
+  {
+   "number": 21,
+   "name": "PWM SOLO",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "0adaed73",
+   "record": "kgAAAPoAAlBXTSBTT0xPAAAAADMvAQEsgUCLq4yvkkqTO5QrmFGcQ5+boC+lQ6dJqIapU6tjtkG3K7lDulW7Vb5Av0BNKhgRCBIunjIADmBo///bfhEAAKYEAFWRs4pLm5dDTFtyQk1DfVVCTExbS3pbTEVLQ3ZMRF9LR39OSkVFT5eGj49BkUFBWaRDVQIAAwA="
+  },
+  {
+   "number": 22,
+   "name": "RING LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "49a3cca5",
+   "record": "kAAAAPoAAlJJTkcgTEVBRAAAAC8xAQEuhTaLq4yvjzaSOZM8lF+cQp+XoDOlQqZHp0uokalPsX22QbctuUO6W7tTvkC/QE1wChEIEmYeMgAOYGj/f9tcGAAApgQAT5GzipubQlVVckJRRINSQkt6W0xFS0N2TERyM0d/TkpFRUNvkZGMQkVBQUykQ1ECAAMA"
+  },
+  {
+   "number": 23,
+   "name": "SAW SOLO",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "7d471a84",
+   "record": "kAAAAPoAAlNBVyBTT0xPAAAAADEvAQEsgUCCVYVHhl+Lq4yvjVGPS5BOlFWfm6A1p02ohqlNtkG3K7lDulW7Vb5Av0BNhr4RCBIkXjIADmBo/3/bXiEAAKYEAFORs4pCm5dDVV9yQlFFfVtCTHlYTEkhQ0JKRW9LR39OSkVFRHJPl4aPQo9BQYCkQ1sCAAMA"
+  },
+  {
+   "number": 24,
+   "name": "SIREN LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "9ddc03a3",
+   "record": "jAAAAPoAAlNJUkVOIExFQUQAAC8tAQEqgUCLq4yvj0eRSpNElFGXW5+XoDOlQ6dJqIOpT7ZBtyu5RLpVu1W+QL9ATfs8EQgS2x4iAA5gaP9/234gAACmBABzkbiMb19pZXJCX0Z9X0JMSV9CeS9DQktFXTZHf05KRUVEcm+Xm49QQUFBTKFDUQIAAwA="
+  },
+  {
+   "number": 25,
+   "name": "SOFT LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "e7559435",
+   "record": "kAAAAPoAAlNPRlQgTEVBRAAAADEvAQEsgUCGVYurjK+POZFKk0aUVZZKnEGfoaA1p0moaalNtkG3MblDuku7T75Av0BNleMRCBJqHjoADmBo/3/bfhAAAKYEAF+RuI6bgJtDR1FyQlVBeUxCTHpVTEhSREVOQ0JKR39OSkVFRHJbl5uPS0FBQXmsQ04CAAMA"
+  },
+  {
+   "number": 26,
+   "name": "SQUARE SOLO",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "0a104aee",
+   "record": "kQAAAPoAAlNRVUFSRSBTT0xPADAxAQEugUCCVYZVi6uMr5JKkzuUK5hRnEOfoaAzpUOmTKhpqU+2QrcruUW6g7tVvkC/QE1rqREIEt6eMgAOYGj/f9t+AAAApgQAU5GziUubl0NPW3JCS0F5VUFMfF9OelVEQkpDQkpHf05KRUVEck+Rho9FQUF8pENVAgADAA=="
+  },
+  {
+   "number": 27,
+   "name": "STADIUM",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "f224be18",
+   "record": "mgAAAPoAAlNUQURJVU0AAAAAADE5AQE2gUCLq4yvj0WRTpNGlUGXIZxFn5egK6Jmo5Wkv6VDpjSoealbq3i2Q7cluUS6UbtbvUG+QL9ATcqBEQgSVx4yAA5gaP9/234wAACmBABTkbiRm5tDTFtyQ1FBfVJCS3pbTEVLQ3dNRXpTR39OSkVFRHJPl5GPX0NBQUGAm0NVAgADAA=="
+  },
+  {
+   "number": 28,
+   "name": "SUPER LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "107ef699",
+   "record": "kAAAAPoAAlNVUEVSIExFQUQAADEvAQEsgUCGW4urjK+PRZFOk0aVQZchnEWfm6Avomyjv6S/tkG3JblDulW7W75Av0BNY2cRCBIYHjIADmBo/3/bfjAAAKYEAFORs4ybm0JKX3JCS0OAVUJMSGVMeitEZkZFUjZHf05KRUVEck+Xho9fQ0FBQVqbQ1UCAAMA"
+  },
+  {
+   "number": 29,
+   "name": "SYNC SCREAM",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "edbb978c",
+   "record": "lQAAAPoAAlNZTkMgU0NSRUFNAC43AQE0gEGBQIurjK+PNpFLk0eUW5ZLnESfoaAromSlQ6Y0qHmpVatxtkS3JblCulu7W71BvkC/QE2DcBEIEu8cMgAOYGj//9t8AAAApgQAkbOJm5FDZWVyQktCg19CS0xVTHxfTnpVREJKQ0JKR39OSkVFnoaPW0FBfJtDXwIAAwA="
+  },
+  {
+   "number": 30,
+   "name": "TALK LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "529cfaf5",
+   "record": "kQAAAPoAAlRBTEsgTEVBRAAAADAxAQEugEGBQIurjK+PNpFLk0eUW5ZLn5ugNaVDp0eoc6lNq2q2QbcruUS6UbtVvkC/QE1iYREIEh8eMgAGYOj//9t8AAAgpgQAT5G4iZuXQpFbQlFCb5GAQkxzUURCUUxJX0J5L0N3TUd/TkpFRY+biVtBUUF5l0NfAgADAA=="
+  },
+  {
+   "number": 31,
+   "name": "THEREMIN",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "77432afe",
+   "record": "kwAAAPoAAlRIRVJFTUlOAAAAADIxAQEugUCLq4yvj0eSRpM8lDGYTJxCn6SgNaVCpkynR6hlqU22QbczuUO6S7tNvkC/QE0TaBEIEmceMgAOYGr/f9t+EQAApgQAeY+4j5uRRUdLckJ5QUF5TEJMeVFMSStDQkZFdk1Hf05KRUVEcnOPpImPQZFBQXyyQ0oCAAMA"
+  },
+  {
+   "number": 32,
+   "name": "TRANCE LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "5ff95583",
+   "record": "lQAAAPoAAlRSQU5DRSBMRUFEACw1AQEygUCLq4yvjkGPNpFLk0eUW5ZLnEWfl6AlonOjv6S/pkyofalbtkG3IblFun27X75Av0BNya0RCBJ4HkYADgBo/3/bPgAAAKYEAECPfYZpQUtVX3JCfVVCTEhlTHorRGZGRUJHR39OSkVFRHJAiVWDW0F6m0NbBgALDQBBQoc="
+  },
+  {
+   "number": 33,
+   "name": "UNISON LEAD",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "9606caf1",
+   "record": "igAAAPoAAlVOSVNPTiBMRUFEAC8rAQEogUCFNourjK+PNpI5kzyUX5+boCunRaibqVW2QbcluUO6VbtbvkC/QE0AZBEIEngeMgAOIHj/f9t8EAAApgQAT5GzipubQltfckNFb31VQkx8X056VURCSkNCSkd/TkpFRURyl4aPW0FBQYChQ1UCAAMA"
+  },
+  {
+   "number": 34,
+   "name": "WHISTLE",
+   "engine": "ANALOG",
+   "category": "LEAD",
+   "saved": true,
+   "crc32": "23e6cbbd",
+   "record": "lAAAAPoAAldISVNUTEUAAAAAADEzAQEwgUCFRYurjK+PR5BKlE+cQp+koDalQqZMp0moaalLrkevX7ZBtzG5Q7pLu0++QL9ATQlgEQgSdV4yAA5gaP9/234QAACmBABvj7iGQZuXQ0xLckJfQ4NVQkxJVUJ5NENCR0VbSkd/TkpFRURyaY+biWVEQUFnskNLAgADAA=="
+  },
+  {
+   "number": 35,
+   "name": "AIRY SHEET",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "ae685ab8",
+   "record": "mQAAAPoAA0FJUlkgU0hFRVQAADA1AQEygUCFNouvjLGSOZM8lF+bUZ95oCGlQ6ZMqG+pX6tjrl+vEbBftkG3G7lDulG7Zb5Av0BNg1gbCBzDnoQADgDo/3/bfhAIAKYEAJ6eqaY2Qy9bUWhDc1KkQkF5WExJIUNCSkVbSkd/TkpFRURyoZ59pExBQUZBbrBDTgYAAwJRQlJB"
+  },
+  {
+   "number": 36,
+   "name": "BRASS SWELL",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "c16f6319",
+   "record": "jQAAAPoAA0JSQVNTIFNXRUxMADAtAQEqgUCLq4yvj0SRTZNFlUGXJZ43n5egK6dJqJepVbZCtyu5Qbpbu1W+QL9ATZp+Gwgc/B4WAQ4AaP9/234wAACmBACPl7iXm0GeT1tVaEVvVUJBe1tLSShFeU9JXzNHf05KRUVEcpeehpdfQ0FBQXKhQ2kCAAMA"
+  },
+  {
+   "number": 37,
+   "name": "CHOIR AAH",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "c063c23a",
+   "record": "lQAAAPoAA0NIT0lSIEFBSAAAADIzAQEwgEGBQIJVhUeLr4yxj0uQTpRVn4agJaVBpkyofalfrkuvF7ZBtyG5Q7pLu1++QL9ATQ6JGwgcn15CAAYA6P//234QMCCmBACUnrOkQko2fVFCb32AQkxuRUxIZUF6K0pmRkVbSkd/TkpFRZebhp5bQUFBQVFBeaFDSwIAAwA="
+  },
+  {
+   "number": 38,
+   "name": "CLOUD NINE",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "39ddf530",
+   "record": "mgAAAPoAA0NMT1VEIE5JTkUAAC05AQE2gUCER4ZVi7SMto0vjzmRSpNGlFWWSptRnEGfl6ArpUKmTKdLqIapVbZBtyW5Q7pLu1u+QL9ATUPPGwgclB4OAA4AaP9/2z4AEACmBAChnriqbERgRUtRQ3NHQkx6VUFIUkRFTkplVUd/TkpFRURyoZ6Rp0pBQVSwQ0sGAAMCUUFSQQ=="
+  },
+  {
+   "number": 39,
+   "name": "DARK ORBIT",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "c97685f4",
+   "record": "lQAAAPoAA0RBUksgT1JCSVQAAC43AQE0gUCGX4u0jLaNIZJMkzqUJZhVnEWfkaAhom+jv6S/pjSoc6lftkO3G7lEuku7Zb1BvkC/QE1h1BsIHK2ehgAOAGj/f9s+ABAApgQApKG4q05LQVJMUVFBaU9CQXlfTEkXQ0JMRUhbR39OSkVFRHKloZGpQEFBbJdDVQIAAwA="
+  },
+  {
+   "number": 40,
+   "name": "DEEP SPACE",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "def6501b",
+   "record": "mAAAAPoAA0RFRVAgU1BBQ0UAAC03AQE0gUCGfYdAi7aMuI9HkUuTRZRVl1+dNJ99oBulQaYoqH2pZa5RtkO3G7lEulG7Zb1BvkC/QE0gNxsIHA8eRgAGAGj/f9s+IBAApgQAqaS4r1tDR29bRmVbQkF5X0xJG0NCS0VgSkd/TkpFRURyq6SbrUBBQUE0m0NVBgADAlFIUkE="
+  },
+  {
+   "number": 41,
+   "name": "DIRTY ANGEL",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "fc27219c",
+   "record": "lAAAAPoAA0RJUlRZIEFOR0VMAC03AQE0gUCESoZVi6+MsY82kUyTR5RflkyeNZ+LoCulQaZMp0moi6lbtkS3JblFuoi7W71BvkC/QE3qpBsIHFYeAgAOAGj//9t+EAAApgQAl56zpGJSZV5Bc1VCS0hbS3pfQUVMQ3ZNRHxVR39OSkVFm5uGoUtBQUF4m0NRAgADAA=="
+  },
+  {
+   "number": 42,
+   "name": "DRIFTING",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "3da2cb71",
+   "record": "kwAAAPoAA0RSSUZUSU5HAAAAADAzAQEwgEGBQIRKi7GMtI0rjzaRS5NHlFuWS543n5GgJadJqJGpW7ZBtyW5QbpVu1u+QL9ATe82GwgcwR4GAA4AaP//334QACCmBAChnrOpaURPVVFBc1BCSUJKSnxbTEhlQXorSmZGRUklR39OSqGehqZAQUFRQXWhQ0sCAAMA"
+  },
+  {
+   "number": 43,
+   "name": "DUST BOWL",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "8371ba79",
+   "record": "lAAAAPoAA0RVU1QgQk9XTAAAADEzAQEwgUCFR4uvjLGPTJBPlFWcQZ+XoCumNKdNqHOpVa5KryG2RbchuUS6UbtfvUG+QL9ATWe3GwgcyF5CAA4AaP//234QMACmBACbnq6kQmk2TJFeQXNQQUxBQ0t6X0FFTEN2TURmSkd/TkpFRZubhqFfQUFBQUF3oUNLAgADAA=="
+  },
+  {
+   "number": 44,
+   "name": "FOG HORN",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "cf1f65e8",
+   "record": "lgAAAPoAA0ZPRyBIT1JOAAAAAC81AQEygUCGfYu0jLaNJY9EkU2TRZVBlyWdNJ+RoC+lQ6YoqIapUbZEtyu5Qbplu1W9Qb5Av0BNqjcbCByFHhYBBgBo/3/bfjAAAKYEAKWeuKqIQZ5PVVVBZVVCTHxbTnpVREJHSmVVR39OSkVFRHKnnpupTkNBQUFpnkNVBAADAVFJ"
+  },
+  {
+   "number": 45,
+   "name": "GLASS CHOIR",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "5d394175",
+   "record": "mAAAAPoAA0dMQVNTIENIT0lSADE3AQE0gEGBQIVHi6+MsY1Rj0uQTpRVnEafhqAlomqjSqVCpkynSah9qVu2Q7chuUG6UbtfvkC/QE3LzRsIHB5eVgAGAOj/f9t+EAAgpgQAl56upEKRQaE2hlFCc4aAQktNS0x6W0RFUUpVSkd/TkpFRURym5t9oVhEQVFBe6RDSwIAAwA="
+  },
+  {
+   "number": 46,
+   "name": "HALO RING",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "2f2edc76",
+   "record": "lwAAAPoAA0hBTE8gUklORwAAAC41AQEyi6+MsY1Rj0uSSpM7lCuYUZtRnEKfl6ArpUKmTKdRqJGpW7FptkO3IblBulG7X75Av0BNrJEbCBwlHk4ADgBo/3/bPgAQAKYEAJuetqdPQYBOVVFoRH1OQkx6W0FIVURFUUpIVUd/TkpFRURynp6RpEBBQVGqQ0sGAAMCUUZSQQ=="
+  },
+  {
+   "number": 47,
+   "name": "ICE FIELD",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "216a38e3",
+   "record": "lgAAAPoAA0lDRSBGSUVMRAAAADEzAQEwhTaLsYy0kjmTPJRfnESdTJ99oCGiWaVGplOoealfq3OsTbZBtxu5Q7pVu2W+QL9ATTiyGwgckp6GAA4A6P//214YAACmBACenq6nNnlBL19RaER9TpBCTExTTHxfTnpVREJKSlVKR39OSkVFoaGGpUJFQUFYqkNOBAADAVFE"
+  },
+  {
+   "number": 48,
+   "name": "MOLTEN PAD",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "9f41abfb",
+   "record": "mQAAAPoAA01PTFRFTiBQQUQAADA5AQE2gUCGX4uvjLGSS5M6lCWYVZxFn5GgJaJzo5WksqVHpjSoc6lfq2S2RLchuUK6X7tfvUG+QL9ATSFiGwgcW56GAA4AaP9/234RAACmBACXnrOnTWxCUWVpUUVvVUJDdVFMSGxKZkdFb0tHf05KRUVEcp6hhqWPQZFBQXOXQ1sCAAMA"
+  },
+  {
+   "number": 49,
+   "name": "NEON NIGHT",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "125a6d79",
+   "record": "kQAAAPoAA05FT04gTklHSFQAADAxAQEugUCGX4uvjLGPRJFNk0WVQZclnjefkaAhpkenSaiRqV+2QrchuUO6W7tfvkC/QE1gRRsIHD0eFgEOAGj//9t+EAAApgQAlJ62pJtBnk9fVVFFc1tCTElVQUlfQnkxQ0JKSXpfR39OSkVFl6GGoWJDQUF3m0NfAgADAA=="
+  },
+  {
+   "number": 50,
+   "name": "NIGHT SHIFT",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "c3bf4cc8",
+   "record": "lwAAAPoAA05JR0hUIFNISUZUADAzAQEwi7GMtJJKkzuUK5hRnEWfhqAlolukpqVDpjSob6lbq3i2RLcluUG6W7tbvUG+QL9ATTVxGwgcXJ6GAA4AaP9/234RAACmBACenrOnS19CTltRUURpUkJBSV9CeS9DQktJf1FHf05KRUVEcqGhhqSDQZFBQUykQ1EGAAMCUUdSQQ=="
+  },
+  {
+   "number": 51,
+   "name": "ORGAN SWELL",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "0615e6ae",
+   "record": "kwAAAPoAA09SR0FOIFNXRUxMADAzAQEwgUCFNoZpi6uMr5I5kzyUX5xDn5GgK6VCpkyohqlVrkWvabZBtyW5Q7pRu1u+QL9ATerDGwgcMZ6GAA4AaP//234gAACmBACXnrihNn1BL0dVXkN9SkFMQkVBSV9CeS9DQktJd09Hf05KRUWXm5ubZUJBQVGkQ1ECAAMA"
+  },
+  {
+   "number": 52,
+   "name": "PAN FIELD",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "8580caad",
+   "record": "nQAAAPoAA1BBTiBGSUVMRAAAAC4/AQE8gEGBQIVHi7SMto0vj0uQTpRVnEWfhqARomakv6VFpkyohqlvq2asaq2/tCW1W7ZBtw25Q7pRu3O+QL9ATcZ3GwgcqV4GAA4AaP9/234QAACmBACbnralQk5BTFFRQXlOQkFFX056IURCSkNCSkd/TkpFRURynp6LoWVEQUF6oUNOAgADAA=="
+  },
+  {
+   "number": 53,
+   "name": "PHASE SHEETS",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "eee21c65",
+   "record": "jgAAAPoAA1BIQVNFIFNIRUVUUzEtAQEqgUCLr4yxj0eRSpNElFGXW541n4ugK6dLqIupW7ZBtyG5QbpVu1++QL9ATSlwGwgcQR5GAA4AaP//334QEACmBACbnrOlZUNHb1VoRnlMQUxzSk50R0x6W0FIVURFUUpuR0d/Tkqbm4ahVUFBQUFMoUNLAgADAA=="
+  },
+  {
+   "number": 54,
+   "name": "RAINY GLASS",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "81347938",
+   "record": "lgAAAPoAA1JBSU5ZIEdMQVNTADE1AQEygUCFRourjK+PSpBNlFOcRp+GoCGiWaNOpUemTKhzqV+rW7ZDtyG5RbqDu1+9Qb5Av0BNyQsbCBzaXlYADgBo///bfhAAAKYEAJeeqaRCoUGhOU9baEF5UEFJT1VFeVtBe1tFeU9Jd09Hf05KRUWXm32hZURBQX6kQ04CAAMA"
+  },
+  {
+   "number": 55,
+   "name": "REED BREATH",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "3b34697c",
+   "record": "lwAAAPoAA1JFRUQgQlJFQVRIADA3AQE0gUCFNourjK+SOZM8lF+cQ5+LoCuiUqVDp0uohqlVq16uTa8XsCu2QbcluUS6S7tbvkC/QE2pPRsIHIyehAAOAOj/f9t+EAgApgQAkZ6zoTZDL19VXkJzW15CTExRTHpbREVRSmcrR39OSkVFRHKRm4abW0FBRkF1oUNRAgADAA=="
+  },
+  {
+   "number": 56,
+   "name": "SIREN SEA",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "f1524fd1",
+   "record": "kgAAAPoAA1NJUkVOIFNFQQAAADExAQEugUCLtIy2jVWPRZFOk0aVQZchn4agJaVDp1Woealbq3G2QbchuUO6VbtfvkC/QE1vZhsIHBEeCgEOAGj//9t+MBAApgQAoZ6zqUBgUW9bUUVvaUJMQUpBeVhMSSFDQkpFSSVHf05KRUWloYalTkJBQUFBdaFDWwIAAwA="
+  },
+  {
+   "number": 57,
+   "name": "SLOW PWM",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "d3e92490",
+   "record": "kwAAAPoAA1NMT1cgUFdNAAAAADAzAQEwgUCLr4yxjVuPRpFHk0OUTpdVnEOfkaArpUOnSaiRqVWrarZBtyW5Q7pRu1u+QL9ATVPuGwgcpR5SAA4AaP//334QAACmBACXnrOkl5dGR1VRQ3NOQkxMX0xPJUx8W056UkRCR0p8W0d/Tkqbm4uhUkFBQVKhQ04CAAMA"
+  },
+  {
+   "number": 58,
+   "name": "SLOW SYNC",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "6ab742d5",
+   "record": "jwAAAPoAA1NMT1cgU1lOQwAAADAvAQEsgUCLsYy0j0eRSpNElFGXW5xEn4ugJaJPpjSofalbtkG3IblDulW7X75Av0BNWjAbCBxyHlIADgBo///ffiAAAKYEAJues6WJl0dSVVFBc1VCTExVS0xRTEhlQXorSmZGRV02R39OSp6hhqRVQkFBdaRDUQIAAwA="
+  },
+  {
+   "number": 59,
+   "name": "SPACE CHORD",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "30b1fe8d",
+   "record": "mQAAAPoAA1NQQUNFIENIT1JEAC43AQE0i7GMtJJKkzuUK5hRm1WcRZ+GoCWiW6NqpKalRqZMqGmpW6tZrEi2QbchuUO6UbtfvkC/QE1GfBsIHCKehgAOAGj/f9s+ABAApgQAm56zpktPQU5VVVFEc05CQXtfS0klRXlRSV5RR39OSkVFRHKenoakQEFBR6FDTgYAAwJRSFJB"
+  },
+  {
+   "number": 60,
+   "name": "STRING MACH",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "46a29d9c",
+   "record": "lwAAAPoAA1NUUklORyBNQUNIADA3AQE0hTmGVYuxjLSNVZI6kzyUW5xFn4ugJaJio5WkoqVBpkynR6hvqV+2Q7cluUG6Ubtbvku/QE3CbxsIHLWehgAOAOj/f9teGAAApgQAm56uoTl9QTFbS1FEfU5UQkF7W0tJKEV5T0l/UUd/TkpFRURynpuGoUJFQUFMoUNOAgADAA=="
+  },
+  {
+   "number": 61,
+   "name": "SUN SWEEP",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "abd57a4f",
+   "record": "lAAAAPoAA1NVTiBTV0VFUAAAAC81AQEygEGBQIJVhEeKQYuxjLSPOZFKk0aUWJZKn5GgK6ZMpzmohqlVtkG3IblDulW7X75Av0BNwqUbCBx/HgYADgDo///bPgAQIKYEAJuetqVzRGVbUUJpX4BCTG5PQXtbS0koRXlPSXpfR39OSkVFq6WRpU1BUUFypENvAgADAA=="
+  },
+  {
+   "number": 62,
+   "name": "SUNRISE",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "edfe593f",
+   "record": "ngAAAPoAA1NVTlJJU0UAAAAAAC09AQE6gUCGW4pBi7SMto1fj0WRTpNGlUGXIZtbnEWfi6AlomCjlaSspkynR6h5qVu2QbcluUO6UbtbvkC/QE2A4BsIHHgeAgEOAGj/f9t+ABAApgQAp6G4q0BRVVVRRWVOQkt6W0FFS0N2TER0Skd/TkpFRURyraGkq3ZDQUFpoUNvBgADAlFGUkE="
+  },
+  {
+   "number": 63,
+   "name": "TAPE STRINGS",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "218d02de",
+   "record": "jQAAAPoAA1RBUEUgU1RSSU5HUzAtAQEqgUCFOYurjK+POZI6kz2UW5+RoCWmTKc1qIapW7ZBtyW5Rbp9u1u+QL9ATWI9GwgcRx5MAA4A6P//2z4QCACmBACRnrahQ6AyR19RQ3lKaEFMQUNLelVBRUpDdkpEQktHf05KRUWXm5ueX0FGQVehQ0sCAAMA"
+  },
+  {
+   "number": 64,
+   "name": "VELVET DUSK",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "11ccb888",
+   "record": "jwAAAPoAA1ZFTFZFVCBEVVNLAC4xAQEugUCGW4uxjLSPR5FKk0SUUZdbnEGeOZ+XoCWnR6h5qVu2QbcluUS6S7tbvkC/QE1O5RsIHLMeWgAOAGj/f9t+AAAApgQAoZ64p4lgl0dbX1FFaU9CQUlfQnkvQ0JLSV8zR39OSkVFRHKhnpGlW0JBa6ZDUQIAAwA="
+  },
+  {
+   "number": 65,
+   "name": "VOWEL BREATH",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "d108e359",
+   "record": "lQAAAPoAA1ZPV0VMIEJSRUFUSC43AQE0gEGBQIRKi6+MsY82kUuTR5RblkufhqAvpUOmTKhzqVOuVa8bsFW2QbcluUS6S7tbvkC/QE05CxsIHCoeAgAGAOj//9t+EAAgpgQAl56upFWLUUJvkYBCTHNNQUlfQnkvQ0JLSXklR39OSkVFl5uRoUBBQVFBd6FDSwIAAwA="
+  },
+  {
+   "number": 66,
+   "name": "WARM BLANKET",
+   "engine": "ANALOG",
+   "category": "PAD",
+   "saved": true,
+   "crc32": "42518404",
+   "record": "jwAAAPoAA1dBUk0gQkxBTktFVC4xAQEugUCGZYuxjLSNJY9EkUuTRZVBlyWeM5+LoCGnTaiLqV+2QbcruUG6VbtVvkC/QE01KRsIHAQeCgEOAGj/f9t+ABAApgQAnp64pkCgTltbUUVsTEJMSF9Bei9KZkVFYEpHf05KRUVEcqGekaR2Q0FBcKpDUQIAAwA="
+  },
+  {
+   "number": 67,
+   "name": "HARP PLUCK",
+   "engine": "ANALOG",
+   "category": "PLUCK",
+   "saved": true,
+   "crc32": "c1f1ffff",
+   "record": "mQAAAPoABEhBUlAgUExVQ0sAAC43AQE0gUCFOYpBi56MpY0hjzmSOpM8lFucQZ+boCWlQqZMqHOpX65Hrxe2QbchuUO6UbtfvkC/QE2cnQsIDBkeRAAOAGj/f9t+EAgApgQAQKlAm0Mxc1FyRn1SQkt6WEFFSkN2S0RmSkd/TkpFRURyQIxAiVtBQUZBTKpDWwYAAwIRQRNC"
+  },
+  {
+   "number": 68,
+   "name": "KALIMBA",
+   "engine": "ANALOG",
+   "category": "PLUCK",
+   "saved": true,
+   "crc32": "845cafe1",
+   "record": "lgAAAPoABEtBTElNQkEAAAAAADE1AQEygUCFR4pBi56MpY0lj0uQTpRVnEKfm6AlpUamU6h5qV+rkKxOtkG3G7lFunm7Zb5Av0BNah4LCAxsXkIADgBo///bXiEwAKYEAECmQJtCVTZKS3JDg0xCS1BVTEhlQXorSmZGRW9LR39OSkVFQIlAhkKPQUFBQVywQ1ECAAMA"
+  },
+  {
+   "number": 69,
+   "name": "STRING POP",
+   "engine": "ANALOG",
+   "category": "PLUCK",
+   "saved": true,
+   "crc32": "f7301b1f",
+   "record": "kAAAAPoABFNUUklORyBQT1AAAC0zAQEwgUCESopBi56MpY82kUyTR5RflkycQ5+XoCuiVadLqHmpW7ZEtyW5Q7pVu1u+QL9ATX8KCwgMbR4GAA4A6P9/2z4AEACmBABAl0CIfURfUXJCc2VoQkx6X0FIWERFU0puR0d/TkpFRURyQIlAg1tBQXWkQ2UCAAMA"
+  },
+  {
+   "number": 70,
+   "name": "SYNTH PLUCK",
+   "engine": "ANALOG",
+   "category": "PLUCK",
+   "saved": true,
+   "crc32": "30591e07",
+   "record": "lwAAAPoABFNZTlRIIFBMVUNLADAzAQEwgUCCVYpBi56MpY9GkU+TR5VBlx6fm6AlpUOmTKiDqVurarZCtyG5Qbpfu1++QL9ATYlRCwgMwB4WAQ4AaP9/234wAACmBABAm0CKm0GeU19bckVzX0JBe19LSSFFeVNJel9Hf05KRUVEckCNQIhfQ0FBQXehQ2kGAAMCEUMTQg=="
+  },
+  {
+   "number": 71,
+   "name": "AUTOPAN EP",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "07bb6441",
+   "record": "jwAAAPoABUFVVE9QQU4gRVAAAC4xAQEugUCLq4yvkkqTO5QrmFGcRp+boDWiSKNHpUKmTKhpqUu2QbcruUO6UbtVvkC/QE1GtAsIDOqeAgAOAGj//9t+EQAAhgQAQKZpj0uPSlFoQ31MQkFFaUx8X056VURCSkNCSkd/TkpFRUCRSoyhQZFBQVZDTgIAAwA="
+  },
+  {
+   "number": 72,
+   "name": "BRASS STAB",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "3eb385ae",
+   "record": "lgAAAPoABUJSQVNTIFNUQUIAAC03AQE0glWLpYypj0WRTpNGlUGXIZxFn5egL6Jmo2qkmaVDpjSoealVq3i2QbcruUS6UbtVvkC/QE1SXQsIDBceAgEOAGj/f9t+ABAApgQAQJdVj0pRVV9oRHNVQUFJX0J5L0NCS0l2UUd/TkpFRURyX5FPj4NDQUFMpENbBAADAVFF"
+  },
+  {
+   "number": 73,
+   "name": "BROKEN KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "e5677af3",
+   "record": "kwAAAPoABUJST0tFTiBLRVlTADAzAQEwgUCLq4yvj0eRSpNElFGXW5xBn5egK6VDpkyoealVq2O2RLchuUW6jbtfvUG+QL9ATQ6jCwgMtR4GAQ4A6P//2z4gEACmBABAm0qJm0NfX1toRXNfXkJJQktFel9LeltMRUtDU1FHf05KRUVAjEqJUEFBQXmhQ1sCAAMA"
+  },
+  {
+   "number": 74,
+   "name": "CELESTA",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "9f2a008d",
+   "record": "lAAAAPoABUNFTEVTVEEAAAAAAC81AQEygUCLq4yvj0eRSpNElFGXW5xCnUyfm6AvpUamWKhzqVWrj6xLtkG3K7lDulG7Vb5Av0BNIusLCAzRHlIADgDo///bfgAAAKYEAECpQKGXl0dFS2hBc0ykQUtQUUx6W0FIVURFUUpfM0d/TkpFRUCRQI9pQkGMsENKAgADAA=="
+  },
+  {
+   "number": 75,
+   "name": "CHURCH PIPES",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "19be26bf",
+   "record": "kwAAAPoABUNIVVJDSCBQSVBFUy41AQEygUCFOoZpi6+MsY86kjuTPZRVnEKfoaA1pUGmTKiGqUuuS69ltkG3L7lDuku7Ub5Av0BNraILCAwXHkYADgBo/3/bXhgAAKYEAH19v5F9QTRFUV5DfUVCQXlRTEkrQ0JGRXZNR39OSkVFRHJ5iZuPQkVBQVSkQ0sCAAMA"
+  },
+  {
+   "number": 76,
+   "name": "CRYSTAL KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "aa540d15",
+   "record": "lAAAAPoABUNSWVNUQUwgS0VZUzMvAQEsi6WMq49FkU6TRpVBlyGcRJ+LoCWiaKVCplOofalftkO3IblBulG7X75Av0BNE5cLCAycHh4BDgDo///bfjAAAKYEAECmQJubQWCeUVtVckRvUppCS0xRTHpbQUhVREVRSnxbR39OSkVFQJdAkV9DQUFBUapDTgQAAwERSA=="
+  },
+  {
+   "number": 77,
+   "name": "DARK TINES",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "bae7694c",
+   "record": "jgAAAPoABURBUksgVElORVMAAC0xAQEuhTmLr4yxjS+POZI6kz2UW5xBn5ugL6VCpjSoc6lRtkG3K7lEuku7VbykvkC/QE3n1gsIDCkcTAAOAGj/f9t8EAgApgQAq2WXQ2AyVVttRGlVQkx8W056UkRCR0pnK0d/TkpFRURyl1WRW0FBRkFHsENRAgADAA=="
+  },
+  {
+   "number": 78,
+   "name": "DIRT PIANO",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "06e6863a",
+   "record": "kgAAAPoABURJUlQgUElBTk8AADExAQEugUCFSouljKuPTpBSlFufkaArpUGmNKh9qVWuRa8XtkS3IblFuo27X71BvkC/QE19AgsIDGdeQgAOAGj//9teITAApgQAQKdVjENVNE9vbUFzUkJDf1FMfGlOel9EQkxKVzlHf05KRUVAkUqJQo9BQUFBeptDVQIAAwA="
+  },
+  {
+   "number": 79,
+   "name": "DRAWBARS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "f2e82168",
+   "record": "lgAAAPoABURSQVdCQVJTAAAAAC83AQE0gUCGhodCi6uMr49LkkqTO5QrmFGcQp+koC+lQqZMqJGpUa5HsV+2QbcruUO6UbtVvkC/QE1FtwsIDOocEgEOAGj//9t+EQAApgQAebh5nolRRVVUQ4ZHQUF5X0x6W0xIVURFUUNCSkd/TkpFRUB5kX2PQZFBQVCkQ0cCAAMA"
+  },
+  {
+   "number": 80,
+   "name": "EP CHORUS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "8942c7bb",
+   "record": "lgAAAPoABUVQIENIT1JVUwAAAC05AQE2gUCLq4yvj0eRSpNElFGXW5xGnjefl6AbokijRqVGp0mol6llq0isRrZBtxu5QbpRu2W+QL9ATfu0CwgMVx5SAA4AaP9/234AAACmBABAp2WPl5dHR1FoQYNKQktNTkF7X0V5UUl5JUd/TkpFRURyQJRKj2lCQYSkQ0sCAAMA"
+  },
+  {
+   "number": 81,
+   "name": "FIFTH STAB",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "3771e7d0",
+   "record": "lQAAAPoABUZJRlRIIFNUQUIAADIvAQEsgEGBQIVHi56MpI9LkE6UVZxEn5egJaJdpkeohqlftkK3IblFuoO7X75Av0BNoqQLCAweXlYADgBo///bfhAAIKYEAECXQIxCoUGhNltbaEJ9VUJLTFVBeVhMSSFDQkpFXzFHf05KRUVAkUCMZURBUUFzoUNbBgADAlFJUkE="
+  },
+  {
+   "number": 82,
+   "name": "GLASS BELLS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "88c2f459",
+   "record": "lgAAAPoABUdMQVNTIEJFTExTADE1AQEyhUeLr4y0j0uQTpRVnEafl6AlonOjWKVGpkynN6h5qV+rZqxQtkG3IblDulu7X75Av0BN3LYLCAxyXlYADgBo///bfhAAAKYEAECvQKVCoUGhNlVLaESHSkFLTVFLeltBRUtDdkxEcjNHf05KRUVAnkCbZURBQViuQ04CAAMA"
+  },
+  {
+   "number": 83,
+   "name": "HARPSI WIDE",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "c4c3df81",
+   "record": "jgAAAPoABUhBUlBTSSBXSURFACszAQEwgUCCVYRKi56MpI82kUuTR5RblkufkaAbpUOmTKh9qWWreLZEtyG5QrpVu1++QL9ATcQCCwgM3h4GAA4AaP9/2z4AEACGBABAoUCGfURpUXJGg09BTEhlQXorSmZGRVI2R39OSkVFRHJAg0B9W0FBTENVAgADAA=="
+  },
+  {
+   "number": 84,
+   "name": "HONKY TONK",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "4cf74bbc",
+   "record": "jwAAAPoABUhPTktZIFRPTksAADAvAQEsgUCLpYypj0WRTpNGlUGXIZ4jn5egF6dfqJepabZCtyu5Qbpbu1W9Qb5Av0BNKIYLCAy2HhYBDgBo/3/bfjAAAKYEAEClVYmbQZ5RT1VoQn1MQkF5WExJIUNCSkVSNkd/TkpFRURyQI9KiV9DQUFBdaRDUQIAAwA="
+  },
+  {
+   "number": 85,
+   "name": "LOFI KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "f4c7f80c",
+   "record": "kQAAAPoABUxPRkkgS0VZUwAAACw1AQEygUCER4urjK+POZFKk0aUWJZKnEGfm6AvpUKmTKdNqHmpU7ZFtyW5Qbpfu1u9Qb5Av0BNnDILCAy2HAYADgBo///bPhAQAIYEAKRfj31ER5doQXlKQUxBQ0t6WEFFSkN2S0R1NUd/TkpFRUCRSo9iQUFBe0NLAgADAA=="
+  },
+  {
+   "number": 86,
+   "name": "MUSIC BOX",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "1d5ca484",
+   "record": "lQAAAPoABU1VU0lDIEJPWAAAAC4zAQEwgUCKQYuljKuPTZJLkzqUJZhVnEKdTJ+boCWlQaZTqHmpW7ZBtxu5RbqDu2W+QL9ATXWLCwgM5h5GAA4A6P9/2z4AEACmBABApUCbX0FRR0ttQWxKv0JMSGxBeiVKZkdFXzFHf05KRUVEckCPQIlFQUGKskNKBgALBwBBQUI="
+  },
+  {
+   "number": 87,
+   "name": "PHASE KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "cd205c72",
+   "record": "igAAAPoABVBIQVNFIEtFWVMAAC8rAQEogUCFR4urjK+PS5BOlFWfkaAtp0mohqlVtkG3JblCulG7W71BvkC/QE35HgsIDP9cQgAOAGj//9t8EDAApgQApGmRQmk2ZVVoRn1OQUxzR0FJX0J5L0NCS0lzSkd/TkpFRZdVj19BQUFBQUehQ0sCAAMA"
+  },
+  {
+   "number": 88,
+   "name": "PULSE CHORDS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "e7ec82a8",
+   "record": "kQAAAPoABVBVTFNFIENIT1JEUy4vAQEsgUCGc4urjK+SR5M8lC2YT5+XoC+lQ6hzqVGuRa8btkG3K7lDuku7Vb5Av0BNjkoLCAzcnoYADgBo/3/bPgAQAKYEAF+hkY9KX0FNRVFeQ3lMQkt6WEFFSkN2S0RbR0d/TkpFRURyU5Fpj0VBQVmhQ1EGAAMCUUdSQQ=="
+  },
+  {
+   "number": 89,
+   "name": "PULSE FUNK",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "ccbb8a1c",
+   "record": "lgAAAPoABVBVTFNFIEZVTksAADE1AQEygUCCVYVHikGLm4yej02QUZRbnEOfm6BRolWlQ6ZMqH2pK7ZCtyW5RbqIu1+9Qb5Av0BNRW0LCAwwXkIADgDo/3/bXiEwAKYEAECRQH1CVTVMW21DeWVoQUF7ZUtJIUV5VUl0S0d/TkpFRURyQIpAg0KPQUFBQVykQ1sCAAMA"
+  },
+  {
+   "number": 90,
+   "name": "PWM KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "5eef15ef",
+   "record": "lAAAAPoABVBXTSBLRVlTAAAAAC0zAQEwgUCESourjK+PNpFLk0eUW5ZLnEOfl6ArpUOnS6iGqVWrcbZBtyu5Q7pRu1W+QL9ATQ9cCwgMSx4CAA4AaP//33wQAACmBABVoX2PYkdVaEF9TEJMTFtMTytMfF9OelVEQkpKXzNHf05KkV+PeUFBQYGmQ0sGAAMCEUcTQg=="
+  },
+  {
+   "number": 91,
+   "name": "REED PIANO",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "87d50bcc",
+   "record": "lQAAAPoABVJFRUQgUElBTk8AADIzAQEwgUCLpYyrjVuPRZFOk0aVQZchnEOfm6AromqlQadLqHmpVbZCty+5Q7pRu1W+QL9ATROQCwgMmx4WAQ4A6P//234wAACmBABAnnOJm0GeUUppaEF9W0xCQ3VVS3pbQUVLQ3ZMRF4zR39OSkVFQI9KiV9DQUFBgKRDVQIAAwA="
+  },
+  {
+   "number": 92,
+   "name": "ROCK ORGAN",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "70a56497",
+   "record": "kgAAAPoABVJPQ0sgT1JHQU4AAC8zAQEwgUCGaYuljKmPRpFHk0SUT5dYnEOfl6ArpUOmR6iGqVWrcbZEtyW5Qrpbu1u+QL9ATaLNCwgMdx5GAA4AaP//2z4gEACmBABAfbh9c0NGX2VoQn1VQUJBR0FJX0J5MUNCSklYUUd/TkpFRUB9fX1QQUFBd6FDUQIAAwA="
+  },
+  {
+   "number": 93,
+   "name": "SHIMMER KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "a7266d11",
+   "record": "lAAAAPoABVNISU1NRVIgS0VZUy81AQEyhTaLq4yvkjmTPJRfnEWfi6AromyjaqSypUamWKhzqVurc6xTtkG3JblDulW7X75Av0BN0V8LCAyWnoQADgBo/3/bfhAIAKYEAFOnZZc2Qy9VUXJEg05CTEhlQXorSmZGRUhbR39OSkVFRHJPm1WXW0FBRkFTpENRAgADAA=="
+  },
+  {
+   "number": 94,
+   "name": "SOFT TINES",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "9c05d272",
+   "record": "lwAAAPoABVNPRlQgVElORVMAACw7AQE4gEGBQIJVi6uMr41Vj0eRSpNElFGXW5xCn6GgNaEhpUGmTKdHqF+pW6pptkG3IblFunm7W75Av0BNJtMLCAztHBIBDgBo/3/bfgAAAKYEAKdvkZePVUxRaEF5SkJMeVhMSSFDQkpFXTZHf05KRUVEckCPX49pQkF6rENLAgADAA=="
+  },
+  {
+   "number": 95,
+   "name": "STAB HOUSE",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "08fbf12d",
+   "record": "jwAAAPoABVNUQUIgSE9VU0UAAC4vAQEsgUCFNYZfi56MpI81kjmTO5Rln5egK6ZHqJGpW7ZCtyW5Q7pbu1u9Qb5Av0BN6WQLCAyVHkYADgBo/3/bXhgAAKYEAECRQIqHQStbX2hFeV9CTHpfQUhbREVVSndNR39OSkVFRHJAjkCJQkVBQXyhQ2UEAAMBUUQ="
+  },
+  {
+   "number": 96,
+   "name": "STEREO KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "b1de9640",
+   "record": "lQAAAPoABVNURVJFTyBLRVlTAC43AQE0gEGBQIRKi6uMr482kUuTR5RblkucQ5+XoAeiY6ZMqJGpebQbtWW2QbcRuUO6VbtvvkC/QE1qgQsIDPMeBgAOAGj//9s+ABAgpgQAQKdbj31ESlVtQX1MQkRFUUF5WExJIUNCSkVCR0d/TkpFRUCRSoxbQVFBgKZDUQIAAwA="
+  },
+  {
+   "number": 97,
+   "name": "STUDIO GRAND",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "38bb10e9",
+   "record": "kwAAAPoABVNUVURJTyBHUkFORDAzAQEwgUCGVYuvjLGNK49GkUeTQ5ROl1WfkaAvpUOmTKh5qVGrcbZBtyW5Q7pLu1u+QL9ATaKNCwgMNx5OAA4AaP//2z4gEACmBABArVWRc0OARkdLckODT0JEeVVMSF9Bei9KZkVFQkdHf05KRUVAl0qPUEFBQVKkQ1UCAAMA"
+  },
+  {
+   "number": 98,
+   "name": "TAPE KEYS",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "768e3f4a",
+   "record": "jgAAAPoABVRBUEUgS0VZUwAAAC8vAQEsgUCGX4urjK+PSpJHkzyULZhPn4agL6dLqIOpUbZBtyu5RLpRu1W9Qb5Av0BNAIMLCAybHkYADgBo///bfhAAAKYEAFWmaZF9Qk1Vb2hFc05BTEFCQXtbS0koRXlPSXNKR39OSkVFT5dVkWlBQUF4pENOAgADAA=="
+  },
+  {
+   "number": 99,
+   "name": "TINE PIANO",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "6f34d6e1",
+   "record": "kQAAAPoABVRJTkUgUElBTk8AAC4zAQEwgUCKQYurjK+SSpM7lCuYUZxGn5ugL6JIo0alQqZMqGypVbZBtyW5Q7pVu1++QL9ATbUUCwgMuZ6GAA4AaP//2z4AEACGBABApGmNS19BTk9RaEN9TEJLTVNBSV9CeS9DQktJXlFHf05KRUVAkUCJRUFBV0NOAgADAA=="
+  },
+  {
+   "number": 100,
+   "name": "TOY PIANO",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "510b3d40",
+   "record": "mAAAAPoABVRPWSBQSUFOTwAAAC85AQE2gUCFNopBi56MpJI5kzyUYpxDn5GgIaJOpUamTKhzqV+rj6xOrlGvEbZFtyW5QrpVu1u+QL9ATRxACwgMRJ6EAA4A6P9/23oQCACmBABAm0CJNkMtX5FtQn1fVEJBSWVCeS1DQkxJdEtHf05KRUVEckBAg1tBQUZBfKRDVQIAAwA="
+  },
+  {
+   "number": 101,
+   "name": "TUBE BELL FM",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "0aa906ff",
+   "record": "lgAAAPoABVRVQkUgQkVMTCBGTS05AQE2gUCESouvjLSPNpFLk0eUW5ZLnEafm6AvonOjZqVCplOoaalVrkevb7ZBtyu5RLpLu1u+QL9ATQ5LCwgMXR4CAA4AaP//234QAACmBABAtECpYkpRaEOGTEJLTVVBe19LSSVFeVFJdlFHf05KRUVAoUCbS0FBQVqsQ1ECAAMA"
+  },
+  {
+   "number": 102,
+   "name": "VIBES MOTOR",
+   "engine": "ANALOG",
+   "category": "KEYS",
+   "saved": true,
+   "crc32": "6edb57cb",
+   "record": "kQAAAPoABVZJQkVTIE1PVE9SAC4zAQEwgUCLq4yvj0WRTpNGlUGXIZxCn5ugK6VGplioaalVq3usTbZBtyW5Q7pVu1++QL9ATXYNCwgMYx4GAQ4AaP//234AAACmBABAq0Cel0FbR0toQYNMQkFFW0x8X056VURCSkNCSkd/TkpFRUCXQI+DQ0GFqkNKAgADAA=="
+  },
+  {
+   "number": 103,
+   "name": "FM TOM",
+   "engine": "ANALOG",
+   "category": "DRUM",
+   "saved": true,
+   "crc32": "acb56161",
+   "record": "kwAAAPoABkZNIFRPTQAAAAAAADAzAQEwgUCGfYpBi5eMm5JKkzuUK5hRnEadNJ+koDWiSKNWrkuvUbZBty+5Q7pbu1G+QL9ATRMGCwgMDZ6GAAYAaP//234RAACmBABAl0CJS2xCTk9fQXNVQkJBX0tNVUFJX0NCS0l3T0d/TkpFRUCJQH2PQZFBQXCkQ1UCAAMA"
+  },
+  {
+   "number": 104,
+   "name": "NOISE HIT",
+   "engine": "ANALOG",
+   "category": "DRUM",
+   "saved": true,
+   "crc32": "ba94132b",
+   "record": "lAAAAPoABk5PSVNFIEhJVAAAAC81AQEygUCKQYuXjJuPR5FLk0WUVZdfnEKdNJ99oCulQ6ZMqGmpW66ktkW3IblCumm7X75Av0BN76ALCAxXHkYABgDo///bPiAQAKYEAECPQINzQ0dvl0KAaaRBRUVlQkFVQXlfQ0JLRUklR39OSkRyQINAfVBBQUF+m0NvAgADAA=="
+  },
+  {
+   "number": 105,
+   "name": "ALIEN CHOIR",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "31480e62",
+   "record": "mgAAAPoAB0FMSUVOIENIT0lSAC87AQE4gEGBQIU2i6+MsZI5kzyUX5xGn4agIaJRo1mlRqZHp1Gofalfq12sUK5KtkO3G7lEulG7Zb5Av0BNceQfCCC1noQABgDo/3/bfhAIAKYEAJuhs6c2Qy+GX0JvhoBCTHNVSk1LQUlfQ1dHR39OSkVFRHKeoZGlT0FBRkF4oUNRAgADAA=="
+  },
+  {
+   "number": 106,
+   "name": "BUBBLE POP",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "131d55b2",
+   "record": "lgAAAPoAB0JVQkJMRSBQT1AAADE1AQEygUCKQYuXjJuPRZFOk0aVQZchnEKfoaAlpUamTKhpqVurWaxKtkG3IblFuoO7X75Av0BN7/IfCCA9HhYBDgBo///bfjAAAKYEAECKQIahQZ5RT1VoQYBVQkJBX0VFX0F5WENCSkVCR0d/TkpEckCDQH1pQ0FBQYOwQ1UCAAMA"
+  },
+  {
+   "number": 107,
+   "name": "COMPUTER",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "e7fcd713",
+   "record": "jwAAAPoAB0NPTVBVVEVSAAAAAC4xAQEugUCLnoylj0eRSpNElFGXW5xDn5GgK6JcpUGmTKh9qVu2RbchuUK6W7tfvkC/QE3H+x8IIBweRgAGAOj//9t+AAAApgQAQIxpg6FER2mXRX1pXkJJQlVJeVtJSSFERVFKfFtHf05KRUVAiUp9aUJBfJ5DXwIAAwA="
+  },
+  {
+   "number": 108,
+   "name": "CRYSTAL RAIN",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "cb372f76",
+   "record": "lgAAAPoAB0NSWVNUQUwgUkFJTi01AQEygUCLnoylj0eRSpNElFGXW5xCnUyfm6AhpUamWKhzqWWrc6xQtkG3G7lDulW7Zb5Av0BNL+gfCCDnHlIADgBo/3/bfgAAAKYEAEClQKShl0dHUWhBg1JCRUVpRXohRXlRSV8zR39OSkRyQ29AkUCPb0JBirJDSwYAAwIRRBND"
+  },
+  {
+   "number": 109,
+   "name": "DEEP RUMBLE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "3e5a2ba8",
+   "record": "lAAAAPoAB0RFRVAgUlVNQkxFAC03AQE0gUCFOYaRh0CLtoy4jzmSOpM8lFudKJ+GoCulQaYop0uohqlVrlW2RLcluUG6abtbvkC/QE27wR8IIFoeRAAGAGj/f9t+EAgApgQAoZ64r0MxZWlFW1tCTEhfQXotSmZFRVtKR39OSkVFRHKloaStR0FBRkFekUNRAgADAA=="
+  },
+  {
+   "number": 110,
+   "name": "DRONE ENGINE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "391e2183",
+   "record": "lAAAAPoAB0RST05FIEVOR0lORS03AQE0gUCGhou2jLiNUY9HkUqTRJRRl1udNJ4zn5GgIaY0p02okalftkS3IblCulu7X71BvkC/QE3chR8IIHkeRgAGAGj/f9s+IBAApgQAp564rV9DR2lfRWVlQkxIZUF6K0pmRkVgSkd/TkpFRURyqaGkq0BBQUFnl0NbAgADAA=="
+  },
+  {
+   "number": 111,
+   "name": "GHOST VOICES",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "7e504856",
+   "record": "mQAAAPoAB0dIT1NUIFZPSUNFUzA5AQE2gEGBQIu0jLaNK49LkkqTO5QrmFGcQZ+LoCGlQqZHp1WofallrlGvEbZBtxe5Q7pRu2m+QL9ATW1XHwggGh5GAAYA6P9/234RACCmBACloa6tW0JOi1VCbIuAQkpzVUxuSkRCSkpVSkd/TkpFRURyp6SGq31BkUFRQXakQ1ECAAMA"
+  },
+  {
+   "number": 112,
+   "name": "HEARTBEAT",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "66e20127",
+   "record": "iwAAAPoAB0hFQVJUQkVBVAAAACoxAQEugUCGm4urjK+OQY9LkkqTO5QrmFGcQp00n6SgNa5Hr1W2QbcvuUO6VbtRvkC/QE0XJx8IIBAcBgEGAGj//9s6ACAAhgQAkUCJfUN9Sl9BX1VCQkFRS3pbTEVLQ3ZMREJLR39OSkVFQEB9RUFBWUNRAgADAA=="
+  },
+  {
+   "number": 113,
+   "name": "LASER RAIN",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "f8e930e1",
+   "record": "mAAAAPoAB0xBU0VSIFJBSU4AAC03AQE0hEyKQYuejKWPNJFOk0qUZZZOnESfkaAhonalRqZMqHmpZatqrFO2QrcbuUO6X7tlvkC/QE1VQR8IIDQeAgAOAGj//9t+EAAApgQAQJdAkW9lW2hEg19CQkFfS0xfQXtlRXlVSXklR39OSkVFQI9AiVhBQUFYpENpBgALBwBEQ0M="
+  },
+  {
+   "number": 114,
+   "name": "MACHINE ROOM",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "143d257b",
+   "record": "lgAAAPoAB01BQ0hJTkUgUk9PTS05AQE2gUCLq4yvjkGPNpFLk0eUW5ZLnEOdNJ+RoCWiY6YoqH2pW65Pr2mxabZCtyG5RbqRu1++QL9ATWSfHwgg2x4EAQYA6P9/2z4AKACmBACRnrieQ29faURvaWhCTHxlQ3VVQ0JKRWBKR39OSkVFRHKXnpubW0hBQUSXQ1sCAAMA"
+  },
+  {
+   "number": 115,
+   "name": "MOTOR HUM",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "9ae5c3f3",
+   "record": "kgAAAPoAB01PVE9SIEhVTQAAAC8zAQEwgUCFR4Zpi6uMr49MkE+UVZ00n4agK6VDpjSnUah9qVuxVbZEtyW5QrpVu1u+QL9ATWgmHwggbl4GAQYAaP9/214hIACmBACPnribQqdDc1tbQWlfQkx8Yk56W0RCSkNCSkd/TkpFRURyj5ukl0KPQUFBa5tDUQIAAwA="
+  },
+  {
+   "number": 116,
+   "name": "RADIO DRIFT",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "9674c06f",
+   "record": "lQAAAPoAB1JBRElPIERSSUZUAC43AQE0gEGBQIRKi6uMr482kUuTR5RblkucQZ99oCWmTKdJqF+pK655r1+2RbcbuUS6VbtlvkC/QE2b7R8IIFYeBgAGAOj//9s+ABAgpgQAl6GkpH1Eb5FCc3OAQklBR0pCS0t6W0N2TERTNUd/TkpFRZukhqFbQVFBeqFDVQIAAwA="
+  },
+  {
+   "number": 117,
+   "name": "RISER SAW",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "cc38f5c3",
+   "record": "lQAAAPoAB1JJU0VSIFNBVwAAADA1AQEygUCFR4u0jLaNIY9NkFGUW5xFn5GgIaJ5o7+kv6ZMqH2pX7ZEtyG5RbqIu1+9Qb5Av0BNyQgfCCDhXlYABgBo///bfhAAAKYEAK+huKVCl0GhNVVfQ19pQktBX0tmT0t6X0N2TkRbR0d/TkpFRbKlpKVbREFBWZdDfQIAAwA="
+  },
+  {
+   "number": 118,
+   "name": "ROBOT VOICE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "241023cf",
+   "record": "lQAAAPoAB1JPQk9UIFZPSUNFADA1AQEygEGBQIuejKWPRZFOk0aVQZchn4agLadVqH2pVa5Hrxuxc7ZFtyG5Q7pbu1+9Qb5Av0BNhAwfCCCoHgIBBiDo///bfgAQIKYEAFWProlKUYuNQUJzi4BCQ3NTREJVQUlfQ0JLSXklR39OSkVFT4+RiYNDQVFBd5tDVQIAAwA="
+  },
+  {
+   "number": 119,
+   "name": "SHATTERED",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "9aec90ed",
+   "record": "mwAAAPoAB1NIQVRURVJFRAAAADA7AQE4gUCKQYuejKWSTJM6lCWYVZxGn5egG6KQo2alR6ZMqH2pZat2rlGvK7ZDtxe5RbqXu2m9Qb5Av0BNaVIfCCAbnoYADgBo/3/bfhEAAKYEAECnQKRObEJSW2loQ4dfQUV6X0tNW0V5VUl/UUd/TkpFRURyQJtAl49BkUFBd6FDXwIAAwA="
+  },
+  {
+   "number": 120,
+   "name": "SONAR PING",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "f21e0e56",
+   "record": "kQAAAPoAB1NPTkFSIFBJTkcAAC4zAQEwgUCLr4y0j0uSSpM7lCuYUZxCn5ugL6VCpkeoc6lTrkqvEbZBtyu5Q7pVu1W+QL9ATaQTHwgglx5GAA4AaP//2z4AEACmBABAr0CrX0FOeVFoRn1bQkpzR0xIZUF6K0pmRkVIW0d/TkpFRUChQJtFQUFMrkNVAgADAA=="
+  },
+  {
+   "number": 121,
+   "name": "SPACE WHALE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "f3f240cc",
+   "record": "kgAAAPoAB1NQQUNFIFdIQUxFAC01AQEygUCLq4yvjVuPR5FKk0SUUZdbnEKdNJ+boCulRqh9qVurSKxWtkG3IblDulu7X75Av0BNv4sfCCAUHiIADgBo///bfiAAAKIEAKWhs69GU3NfUUZvaUJMUFVLeltMRUtDdkxEdEpHf05KRUWnpJGtUEFBQaRDVQIAAwA="
+  },
+  {
+   "number": 122,
+   "name": "SPARK SHOWER",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "6b95f7a9",
+   "record": "lQAAAPoAB1NQQVJLIFNIT1dFUjA1AQEygUCLl4yej0eRVZNHlUGXF5xDnVifc6AbokelQqZYqH2pZa6GtkW3F7lCul+7ab5Av0BNp10fCCDaHgYBBgDo///bfjAAAKYEAECXQJGrRFh9nkKDeaRCSUJfRUVpTHplQUhfRFM1R39OSkRyQIxAiF9DQUFBg6FDaQIAAwA="
+  },
+  {
+   "number": 123,
+   "name": "STATIC STORM",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "1fa53136",
+   "record": "kAAAAPoAB1NUQVRJQyBTVE9STTEvAQEsgUCFSouejKWPT5BVlF+cQ59poCGmWKhfqWWurrZFtxe5RLp9u2m9Qb5Av0BNJ3cfCCBwXkYABgDo///ffhAAAKYEAJ6luKdDpEQzaalEfW+kQUlCW0VIZUF5YkxJF0NCTUVIW0d/TkqhpaSlZUFBQUiOQ18CAAMA"
+  },
+  {
+   "number": 124,
+   "name": "SWARM",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "40ebc6eb",
+   "record": "mwAAAPoAB1NXQVJNAAAAAAAAADA7AQE4gEGBQIU1i6uMr5I5kzuUZZxFn5egEaKZo7+kv6VFpkeoi6lvq4ysqq2/tkS3F7lDul+7ab5Av0BNHq4fCCCQnjYADgBo/3/bXhgAAKYEAJ6es6U1oUGlSmlbUUJ5X0JMRV9Mel9ERVVDQkpHf05KRUVEcqGekaFCRUFBd5FDVQIAAwA="
+  },
+  {
+   "number": 125,
+   "name": "TAPE STOP",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "a5c717f4",
+   "record": "jQAAAPoAB1RBUEUgU1RPUAAAAC4vAQEsgUCGX4pBi7GMtI9FkU6TRpVBlyGfl6Arp1GohqlVtkG3IblEulG7X75Av0BNP00fCCBSHgIBDgBo///bfgAQAKYEAE+rQKdKUUxlaEF5UkJCQRFMfF9OelVEQkpKXzNHf05KRUVPqUClg0NBQXyhQ1UCAAMA"
+  },
+  {
+   "number": 126,
+   "name": "WARP GATE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "2b71dcd5",
+   "record": "lwAAAPoAB1dBUlAgR0FURQAAAC45AQE2gUCLq4yvjzaRS5NHlFuWS5xGn5egG6JIo3OlRqY0qIapZatArGa2Q7cbuUS6VbtlvUG+QL9ATVw3HwggSx6CAA4AaP//234QAACmBAChnrOrW0dpaVFGeWVCTExPTlBbTHxfREJKQ0JKR39OSkVFpaGGqUtBQUE0m0NfAgADAA=="
+  },
+  {
+   "number": 127,
+   "name": "WIND RISE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "325777bf",
+   "record": "kQAAAPoAB1dJTkQgUklTRQAAADAxAQEugEGBQIU0i7SMto1fkjaTO5Rpn1+gIaVDpkyoW6lfrqG2QbcbuUW6g7tlvkC/QE3XxB8IIDOehgAGAOj//9teGAAApgQArKW4rzR2QSt5VUJifYBCS3NfQXlfTEkXQ0JMRV8xR39OSkVFr6WbrUJFQUFppEN5AgADAA=="
+  },
+  {
+   "number": 128,
+   "name": "WOBBLE",
+   "engine": "ANALOG",
+   "category": "FX",
+   "saved": true,
+   "crc32": "bd9af525",
+   "record": "kAAAAPoAB1dPQkJMRQAAAAAAAC8xAQEugUCFR4Zzi6uMr45Bj0uQTpRVnTSfm6ArpjSnTaiRqVW2RLchuUG6X7tfvkC/QE2AWh8IIPpcRAAOIGj//9tcIQgApgQAkbiDQkNbb2loQUVlfUJMSF9MSV9CeS9DQktFXzFHf05KRUWRkYZCj0FGQWuUQ1UCAAMA"
+  }
+ ],
+ "created": "2026-11-02T00:00:00Z"
+}

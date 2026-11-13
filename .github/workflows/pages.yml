@@ -1,0 +1,76 @@
+# Publishes the L/RRY site (start page, installer, editor, emulator) to GitHub Pages.
+#
+# Nothing generated is committed. The site is built from the committed sources with lrry/web/make_site.py.
+# The two products that need the firmware toolchain or Emscripten come from the newest release (pre-releases count, drafts do not):
+#   lrry-*.fwsc            the firmware package (lrry-0.1.0-beta.fwsc)          -> /install/ (+ lrry-latest.fwsc, lrry-version.json)
+#   lrry-emulator*.zip     the emulator (the contents of lrry/build/emu, zipped) -> /emu/
+# After publishing or editing a release, run this workflow by hand (Actions > Pages > Run workflow, branch main).
+# (After DUELL's workflow, same author.)
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch the package and the emulator from the newest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p dl/emu
+          tag=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName' || true)
+          if [ -n "$tag" ]; then
+            echo "release: $tag"
+            gh release download "$tag" --pattern 'lrry-[0-9]*.fwsc' --dir dl || echo "no package in $tag"
+            gh release download "$tag" --pattern 'lrry-emulator*.zip' --dir dl || echo "no emulator in $tag"
+          else
+            echo "no release yet"
+          fi
+          z=$(ls dl/lrry-emulator*.zip 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$z" ]; then unzip -q -o "$z" -d dl/emu; fi
+          true
+          ls -la dl dl/emu
+
+      - name: Build the site
+        run: |
+          args=""
+          pkg=$(ls dl/lrry-[0-9]*.fwsc 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$pkg" ]; then args="$args --pkg $pkg"; fi
+          if [ -f dl/emu/index.html ]; then args="$args --emu dl/emu"; fi
+          python3 lrry/web/make_site.py $args site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

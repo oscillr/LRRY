@@ -1,0 +1,116 @@
+# Felucca licensing
+
+Felucca is free software, licensed under the GNU General Public License, version 3 only
+(`GPL-3.0-only`, full text in `LICENSE`). That covers the code and its own assets. A few
+bundled or ported parts keep their own licences; they are listed below, and their licence
+texts are in `LICENSES/`.
+
+Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Copyright (C) 2026 OSCILL/R (L/RRY)
+
+L/RRY is a modified version of Felucca. It is licensed under the same terms, GPL-3.0-only, and
+carries Felucca's copyright notices above. The changes that make Felucca into L/RRY are by
+OSCILL/R. L/RRY's source is at <https://github.com/oscillr/LRRY>.
+
+## What is GPL-3.0-only
+
+Every file in this tree that carries an `SPDX-License-Identifier: GPL-3.0-only` header:
+
+- the firmware: `firmware/` (app, HAL, update loader)
+- the build script and tools: `build.sh`, `tools/`
+- the web pages (installer, editor, the browser emulator `web/emu/`) and their tests: `web/` (not the Fukiai and DotGothic16 fonts, below)
+- the host tests: `tests/`
+
+One source file is a port and keeps the licence of its original:
+`firmware/src/fm6_layout.c` (msfa, Apache-2.0: what is left of `fm6_core.c`, the FM6 patch layout and algorithm tables; L/RRY phase 4.4a removed the synthesis,
+and with the PHYS engine's DSP `phys_dsp.c` (DaisySP, MIT) and `phys_symp.c` (Rings, MIT), which are no longer in the tree); and the PLATE reverb's `rev_plate` in `firmware/src/fx_bus.c` (with the constants above `plate_gain` in `fx.c`) (MIT, after the CHOMPI firmware's
+reverb, i.e. Rings / Clouds: `LICENSES/MIT-CHOMPI.txt`; it sits in a GPL-3.0-only file). The firmware built with them is GPL-3.0-only as
+a whole.
+
+You may use, study, change and share Felucca under the GPL. If you distribute Felucca, or
+firmware derived from it, you must also give your recipients its complete corresponding
+source under the same licence. That includes devices that ship with modified Felucca inside.
+
+## Hügelton Instruments' own work
+
+All by Hügelton Instruments (Leo Kuroshita), in this tree:
+
+| What | Licence | Where |
+| --- | --- | --- |
+| Felucca: firmware, tools, web pages, tests | GPL-3.0-only | `LICENSE` |
+| The PHASE engine's waveforms: a C port of the oscillator of CrispyZebra (<https://github.com/hugelton/CrispyZebra>) | GPL-3.0 | `firmware/src/eng_phase.c` |
+| The DRUM voices and kit | GPL-3.0-only | `firmware/src/drum_voice.c`, `firmware/src/eng_drum.c` |
+| The controls picture | GPL-3.0-only | `docs/controls.jpg` |
+| The Fukiai icon font (<https://github.com/hugelton/Fukiai>): the firmware's icons (rasterised at build time by `tools/gen_aa_icons.py`) and the web editor's | MIT | `web/fukiai.ttf`, `LICENSES/MIT-Fukiai.txt`, `web/FUKIAI-LICENSE.txt` |
+
+(L/RRY 0.2.9: the SAMPLE, GRAIN and SLICE engines are removed, and with them all sample data: the CC0 instrument samples of Versilian
+Studios (VSCO-2 Community Edition, VCSL) and the Hügelton Sample Pack (`tools/gen_waves.py`, SLICE's BREAK) are no longer in the tree
+or in the firmware, so their rows are gone from the tables.)
+
+## Third-party material
+
+| What | Licence | Where |
+| --- | --- | --- |
+| Inter Tight font by The Inter Project Authors: the UI text, rasterised into the firmware at build time (`tools/gen_aa_font.py`) and the text of the update screen, rasterised into `firmware/loader/ldr_screen_data.h` (`tools/gen_loader_screen.py`); the generated tables are not offered as a font, and the font declares no Reserved Font Name) | SIL OFL 1.1 | `assets/fonts/InterTight[wght].ttf`, `LICENSES/OFL-InterTight.txt` (also `assets/fonts/OFL.txt`) |
+| Barlow Semi Condensed font by The Barlow Project Authors: the UI text since L/RRY 1.1, rasterised into the firmware at build time (`tools/gen_aa_font.py --preset barlow`) and shown in the web editor (`web/editor/fonts/`) | SIL OFL 1.1 | `assets/fonts/BarlowSemiCondensed-*.ttf`, `LICENSES/OFL-BarlowSemiCondensed.txt` (also `assets/fonts/OFL_Barlow.txt`) |
+| DaisySP by Electrosmith, Corp and Emilie Gillet (<https://github.com/electro-smith/DaisySP>): the PHYS engine's modal and string models and the resonator, ported to fixed point (removed in L/RRY phase 4.4a: no DaisySP code is in the tree now) | MIT | (was `firmware/src/phys_dsp.c`), `LICENSES/MIT-DaisySP.txt` |
+| Rings by Emilie Gillet (<https://github.com/pichenettes/eurorack>): the PHYS engine's sympathetic strings, ported to fixed point (removed in L/RRY phase 4.4a) | MIT | (was `firmware/src/phys_symp.c`), `LICENSES/MIT-Rings.txt` |
+| msfa by Google Inc. and Pascal Gauthier, from Dexed (<https://github.com/asb2m10/dexed>): the FM6 engine's synthesis, ported to integer C (Dexed itself is GPL-3.0; only msfa is used; the FM6 factory patches are Felucca's own); since L/RRY phase 4.4a only its patch layout and algorithm tables | Apache-2.0 | `firmware/src/fm6_layout.c`, `LICENSES/Apache-2.0-msfa.txt` |
+| klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
+| Velo (fm1-velocity) by Charles Vestal (<https://github.com/charlesvestal/fm1-velocity>), a Felucca fork: the method of KEY SENSE (key velocity from the landing and the driven reading of the key's pill, aftertouch, the calibration moving both ways); the code is written again for L/RRY, none copied; its files say "after Velo's method" | GPL-3.0-only | `firmware/src/sense.c`, `sense.h`, `sense_cal.h`, `hal/fm1_adc.h` (non-blocking read), `firmware/src/ui_menu.c` (ABOUT > CREDITS, builds with KEY SENSE) |
+| X0X by charlesvestal (<https://github.com/charlesvestal/fm1-x0x>), a Felucca fork: the design of the browser emulator (the worklet, the device clock driven by its audio, the exports); its files credit it in their headers | GPL-3.0 | `web/emu/` |
+| JIANT by juanjiant-bit (<https://github.com/juanjiant-bit/JIANT>, v0.6.3, a Felucca fork): the reverb models SHIM (`rev_shimmer`) and RESO (`rev_reso`), ported to L/RRY's two effect buses (fixed amounts instead of JIANT's MOD / RATE / WIDE knobs). JIANT's CLOUD is not ported | GPL-3.0 | `firmware/src/fx.c` (comment block above HALL), `firmware/src/fx_bus.c` |
+| The reverb and the delay of the CHOMPI firmware by CHOMPI Club (<https://github.com/CHOMPI-Club/CHOMPI>, MIT, Copyright (c) 2026 CHOMPI Club). The reverb is Emilie Gillet's Rings / Clouds plate reverb (pichenettes/eurorack, MIT, Copyright 2014 Emilie Gillet): the topology, line lengths and control laws of the reverb model PLATE, rewritten as integer code (half rate, in ROOM's buffers). The delay is the granular delay of its TEMPO firmware (`granularDelay.h`, `granularDelay2.h`; no third-party header in those files, covered by the repository's MIT licence): the idea of a tempo-synced delay whose repeats retrigger, reverse or move an octave on a random share of the clock edges, written again as integer code for L/RRY's DELAY MODES RAND and OCT+ (no source line copied). Also the two host comparison harnesses. The CHOMPI name and logo are trademarks, not covered by the MIT licence, and not used (as a product or feature name) | MIT | `firmware/src/fx.c` (`rev_plate`; the comment block above `plate_gain`), `firmware/src/fx_bus.c` (`rev_plate`, `dly_ev`), `tests/revcompare_test.c`, `tests/graindelay_test.c`, `LICENSES/MIT-CHOMPI.txt` |
+| Published ideas behind the WAVE user tables (L/RRY 0.2.14), no code of anyone else: the fast Fourier transform of J. W. Cooley and J. W. Tukey, "An algorithm for the machine calculation of complex Fourier series", Math. Comp. 19 (1965), <https://doi.org/10.1090/S0025-5718-1965-0178586-1> (the converter's radix-2 FFT, written for this tree); the wavetable WAV file convention of Xfer Serum (single-cycle frames of 2048 samples one after the other, and the `clm ` chunk that names the frame size), also used by Vital and Surge, read by the converter (it only reads such files); the level in dB (a logarithmic amplitude byte) is textbook | none (ideas, formats) | `web/editor/wavetable.js`, `firmware/src/eng_wave.c` (user tables), `firmware/src/ui_menu.c` (ABOUT > CREDITS) |
+| One FM voice: aquanodemusic (Aquanode Soundscapes), CC0 1.0 Universal, <https://github.com/aquanodemusic/aquanode-soundscapes>: the bass voice behind the FM6 factory sound FM BASS 2 (L/RRY 0.2.17, factory patch F9; a DX7 voice import, adapted: the name and the carriers' sustain). The other FM6 factory patches are L/RRY's or Felucca's own | CC0-1.0 | `tools/gen_fm6_patches.py` (`FM_BASS_2`) |
+| DotGothic16 font by The DotGothic16 Project Authors (<https://github.com/fontworks-fonts/DotGothic16>): the browser emulator's knob labels, served with its page (cut to printable ASCII; the font declares no Reserved Font Name) | SIL OFL 1.1 | `web/emu/fonts/DotGothic16-subset.woff`, `LICENSES/OFL-DotGothic16.txt` (also `web/emu/fonts/OFL.txt`) |
+| JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are in this tree | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
+
+On the device, HOME held > ABOUT opens the information screen; turning PRESETS scrolls on into
+CREDITS, a short list of these authors, licences and source URLs.
+
+## JieLi SDK files in the packages (Apache-2.0)
+
+A `.fwsc` package made by `tools/build.py` (with `tools/fm1pkg_make.py`; this is the package the
+web installer installs) holds three unmodified files from the JieLi AC79 SDK
+(<https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK>, `cpu/wl82/tools/`). They are read from your SDK
+checkout at build time (see BUILDING.md); no SDK files are in this tree.
+
+| File in the package | What it is |
+| --- | --- |
+| `uboot.boot` | the first-stage boot loader (SPL) |
+| `cfg_tool.bin` | the chip configuration block |
+| `eq_cfg_hw.bin` | the default hardware EQ table |
+
+They are licensed under the Apache License, Version 2.0 (`LICENSES/Apache-2.0.txt`), not under
+the GPL, and their copyright stays with JieLi Technology. The SDK has no NOTICE file. Apache-2.0
+files may be distributed together with GPL-3.0 code; Felucca itself stays GPL-3.0-only.
+
+Every distribution of a package carries the licence texts with it: the release folder
+(`tools/build.py --release`) and the site (`web/make_site.py`, next to the package in
+`firmware/` and linked from the installer page).
+
+## No vendor material
+
+No M-VAVE material is part of Felucca. The firmware links no vendor code and contains no vendor
+data, and the packages hold only Felucca and the three SDK files above. The installer's
+"Return to official V15" holds only the official file's size and SHA-256: you select the
+official firmware file you downloaded yourself, and it is checked and installed in your browser,
+never uploaded or redistributed.
+
+## Contributions
+
+Contributions are welcome under GPL-3.0-only.
+
+## Trademarks
+
+"Felucca" and "Hügelton Instruments" are names of Hügelton Instruments.
+
+"M-VAVE" and "FM-1" are trademarks of their respective owners. Felucca is independent
+firmware that runs on FM-1 hardware. It is not affiliated with, endorsed by or supported
+by those owners.
+
+## Radio
+
+Felucca never enables the Bluetooth / Wi-Fi radio of the hardware.
+
