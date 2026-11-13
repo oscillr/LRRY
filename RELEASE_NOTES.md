@@ -3,6 +3,7 @@
 The first public beta of L/RRY, a new synth for the M-VAVE FM-1.
 
 **Try it first in your browser:** <https://oscillr.github.io/LRRY/emu/>  
+**Best with headphones:** L/RRY lives in stereo.  
 **Install:** <https://oscillr.github.io/LRRY/install/> (Chrome or Edge, USB, back up first)
 
 ## What it is

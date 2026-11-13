@@ -1,9 +1,12 @@
 {
-  "what": "A stereo-field morphing synth. Two oscillators with eight models, a sub, noise and ring mod, two filters and two dirt stages, each with its own pan. Move the pans and the sound travels around you. A morph glides between two versions of every patch. Stereo chorus, delay, reverbs and a mod matrix.",
+  "what": "A stereo-field morphing synth. Two oscillators with eight models, a sub, noise and ring mod, two filters and two dirt stages, each with its own pan. Move the pans and the sound travels around you. A morph glides between two versions of every patch. Effects and a mod matrix. Best with headphones.",
   "author": "OSCILL/R",
-  "kinds": ["synth"],
+  "kinds": [
+    "synth"
+  ],
   "image": "docs/lrry-card.jpg",
   "play": "https://oscillr.github.io/LRRY/emu/",
   "editor": "https://oscillr.github.io/LRRY/editor/",
+  "cheat": "https://oscillr.github.io/LRRY/cheatsheet/",
   "color": "#FF6A1A"
 }

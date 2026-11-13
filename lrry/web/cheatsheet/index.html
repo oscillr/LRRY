@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>L/RRY cheat sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,600;0,700;1,400;1,700&family=Oswald:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0b0b;--panel:#181412;--fg:#f5efe9;--mute:#d6ccc3;--line:#2f2621;--acc:#ff6a1a;--acc2:#ff9a1f;--chip:#241a14;--chipfg:#f5efe9}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 85% -10%,#3a1c0c 0,transparent 60%),var(--bg);color:var(--fg);font:14px/1.45 "DM Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px}
+header{padding:18px 0 10px;border-bottom:2px solid var(--acc)}
+header .logo{display:block;width:min(420px,80vw);height:auto;margin:0}
+header .tag{margin:12px 0 0;font-size:clamp(16px,3.4vw,22px);text-transform:uppercase;color:var(--fg)}
+header .tag i{font-weight:700}
+header .by{margin:6px 0 0;font-size:clamp(15px,3vw,18px);letter-spacing:.22em;color:var(--acc)}
+header .sub{margin:8px 0 0;color:var(--mute)}
+header .stamp{margin:4px 0 0;font-size:12px;color:var(--mute)}
+.bar{margin:12px 0 4px}
+button{font:inherit;font-family:"Oswald","DM Sans",sans-serif;font-weight:600;letter-spacing:.08em;padding:6px 18px;border:0;background:var(--acc);color:#160c05;border-radius:10px;cursor:pointer}
+button:hover{background:var(--acc2)}
+.cols{columns:2 420px;column-gap:24px}
+section{break-inside:avoid;margin:0 0 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px 14px 10px}
+h2{font:600 16px/1.2 "Oswald","DM Sans",sans-serif;margin:10px 0 4px;padding-bottom:3px;border-bottom:2px solid var(--acc);color:var(--acc);text-transform:uppercase;letter-spacing:.1em}
+.row{display:grid;grid-template-columns:42% 1fr;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);break-inside:avoid}
+.g{font-weight:600}
+.g b{display:inline-block;padding:0 6px;border-radius:5px;background:var(--chip);color:var(--chipfg);border:1px solid var(--acc);font-size:.92em}
+.e{color:var(--fg)}
+ul{margin:4px 0 0;padding-left:18px}
+li{margin:3px 0;break-inside:avoid}
+li::marker{color:var(--acc)}
+footer{margin-top:10px;font-size:12px;color:var(--mute)}
+@media (max-width:560px){.row{grid-template-columns:1fr;gap:2px}section{padding:4px 12px 10px}}
+@media print{
+ @page{size:A4;margin:8mm}
+ :root{--bg:#fff;--panel:#fff;--fg:#000;--mute:#333;--line:#bbb;--acc:#c24a0a;--acc2:#c24a0a;--chip:#fff;--chipfg:#000}
+ body{font-size:9pt;line-height:1.15;background:#fff;color:#000}
+ main{max-width:none;padding:0}
+ header{padding:0 0 1.5mm;border-bottom:1.5px solid var(--acc)}
+ header .logo{width:60mm;filter:invert(1)}
+ header .tag{font-size:10pt;margin-top:1mm;color:#000}
+ header .by{font-size:9pt;margin-top:.5mm}
+ header .sub{margin-top:1mm}
+ header .sub,header .stamp,footer{font-size:9pt}
+ .bar{display:none}
+ footer{display:none}
+ .cols{columns:2;column-gap:5mm}
+ section{break-inside:auto;margin:0 0 1.2mm;border:0;border-radius:0;padding:0;background:#fff}
+ h2{font-size:10pt;margin:2mm 0 1mm}
+ .row{padding:.3px 0;gap:4px;grid-template-columns:34% 1fr}
+ li{margin:0}
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <img class="logo" src="logo.png" alt="L/RRY" width="420" height="92">
+ <p class="tag"><i>Stereo-Field</i> Morphing Synthesizer</p>
+ <p class="by">by OSCILL/R</p>
+ <p class="sub">cheat sheet for the M-VAVE FM-1</p>
+ <p class="stamp">checked against L/RRY 0.1.0 beta &middot; full details in SPEC.md</p>
+ <p class="bar"><button type="button" onclick="window.print()">Print</button></p>
+</header>
+
+<div class="cols">
+
+<section>
+<h2>The capsule</h2>
+<svg viewBox="0 0 440 110" width="100%" role="img" aria-label="The capsule at the top right of a page: morph end letter and voices" style="display:block;max-width:440px;color:var(--fg);font:12px/1.2 sans-serif">
+<g fill="none" stroke="var(--mute)" stroke-width="1"><path d="M110 46V60H175"/><path d="M50 46V92H175"/></g>
+<rect x="10" y="10" width="140" height="36" rx="18" fill="var(--chip)" stroke="var(--acc)"/>
+<g text-anchor="middle" font-size="18" font-weight="700" fill="currentColor"><text x="50" y="35">A</text><text x="110" y="35">7</text></g>
+<g fill="currentColor"><text x="182" y="58">In POLY: the notes you can still play.</text><text x="182" y="74">M or L in MONO or LEGATO.</text>
+<text x="182" y="96">Which morph end you edit, A or B.</text></g>
+</svg>
+</section>
+
+<section>
+<h2>Getting around</h2>
+<div class="row"><div class="g">Turn <b>SELECT</b></div><div class="e">Switches between the pages of a module; in lists and the menu it moves the row.</div></div>
+<div class="row"><div class="g">Tap <b>EDIT</b> / <b>FX</b> / <b>ENV</b> / <b>LFO</b> / <b>GLO</b> / <b>ARP</b> / <b>SEQ</b> / <b>SEL</b></div><div class="e">Switches between the modules. EDIT: the sources. FX: filters, dirt and sends. GLO: mixer, pans and effects.</div></div>
+<div class="row"><div class="g">Tap <b>HOME</b></div><div class="e">MORPH page; turn <b>SELECT</b> for MORPH SET.</div></div>
+<div class="row"><div class="g">Hold <b>HOME</b></div><div class="e">Opens the menu. <b>HOME</b> closes it.</div></div>
+<div class="row"><div class="g">Turn <b>ALGORITHM</b></div><div class="e">Moves the MORPH fader, from any page. MENU &gt; CONTROL &gt; ALGORITHM KNOB picks something else for it.</div></div>
+<div class="row"><div class="g">Hold <b>EDIT</b> / <b>FX</b> / <b>ENV</b> / <b>LFO</b> / <b>ARP</b> / <b>GLO</b> / <b>SEQ</b> / <b>REC</b></div><div class="e">Quick page: the four knobs become performance controls. Let go to go back.</div></div>
+<div class="row"><div class="g">Hold <b>OCT-</b> + turn a knob</div><div class="e">Resets that knob's card to its default. In a dialog or menu <b>OCT-</b> means back / no, <b>OCT+</b> do it / yes.</div></div>
+</section>
+
+<section>
+<h2>Playing</h2>
+<div class="row"><div class="g">Tap <b>OCT-</b> / <b>OCT+</b></div><div class="e">Octave down / up of the keys. Both together reset the octave to 0.</div></div>
+<div class="row"><div class="g">Tap <b>REC</b> (not on sequencer pages)</div><div class="e">HOLD: the notes keep sounding. Tap again to release.</div></div>
+<div class="row"><div class="g">Tap <b>PLAY/STOP</b></div><div class="e">Stopped: starts when you let go. Running: stops at once.</div></div>
+<div class="row"><div class="g">Hold <b>PLAY/STOP</b>, or press it twice</div><div class="e">STOP ALL: silences everything, delay, chorus and reverb tails too.</div></div>
+<div class="row"><div class="g">Mod wheel (CC1)</div><div class="e">Moves the MORPH fader too.</div></div>
+</section>
+
+<section>
+<h2>Sound</h2>
+<div class="row"><div class="g">MORPH page</div><div class="e">Knob 1 glides from End A to End B. Knob 2 ROLL: turn left to roll End A, right to roll End B. Knob 3 UNDO steps back. End B is saved exactly as it sounds, with the patch.</div></div>
+<div class="row"><div class="g">GLO &gt; MIXER, STAGE PAN</div><div class="e">Every source's level and pan, and the pans of both filters and both dirt stages, on a few pages.</div></div>
+<div class="row"><div class="g">GLO &gt; MODULES &gt; SENDS OFF</div><div class="e">Switches chorus, delay and reverb off and gives their voices back.</div></div>
+</section>
+
+<section>
+<h2>Sequencer / patterns</h2>
+<div class="row"><div class="g">Turn a knob with <b>REC</b> armed</div><div class="e">Records a parameter lock. Tap <b>SEQ</b>, turn <b>SELECT</b> to PARAMETER LOCKS to change or delete them.</div></div>
+<div class="row"><div class="g">Hold <b>SEQ</b></div><div class="e">QUICK SEQ tools on the keys.</div></div>
+</section>
+
+<section>
+<h2>Saving &amp; loading</h2>
+<div class="row"><div class="g">Tap <b>SAVE</b></div><div class="e">Opens PATCHES (PATTERNS on a sequencer page). <b>SELECT</b> moves between PATCHES, PATTERNS and TOOLS.</div></div>
+<div class="row"><div class="g">Hold <b>SAVE</b></div><div class="e">Overwrites the slot your patch came from; <b>OCT+</b> yes, <b>OCT-</b> no.</div></div>
+<div class="row"><div class="g">MIDI program change</div><div class="e">Program n loads patch slot n + 1 of the 128 (bank 0 or 1).</div></div>
+<div class="row"><div class="g">Backup (installer page or editor Backup page)</div><div class="e">Saves your patches, patterns and settings to a file. Back up before every flash.</div></div>
+</section>
+
+<section>
+<h2>Good to know</h2>
+<ul>
+<li>Each patch's own level is <b>TRIM</b> (EDIT &gt; VOICE 2/2); it's saved with the patch.</li>
+<li><b>KEY VELOCITY</b> and <b>AFTERTOUCH</b> are in MENU &gt; CONTROL.</li>
+<li>Teach a CC with MIDI LEARN on the unit (GLO &gt; MIDI LEARN). CC1 mod wheel, CC11 expression, CC64 sustain pedal are inputs.</li>
+<li><b>Best with headphones:</b> L/RRY lives in stereo.</li>
+<li>Try it first in your browser: oscillr.github.io/LRRY/emu</li>
+</ul>
+</section>
+
+</div>
+<footer>L/RRY &middot; Stereo-Field Morphing Synthesizer &middot; by OSCILL/R &middot; checked against L/RRY 0.1.0 beta.</footer>
+</main>
+</body>
+</html>

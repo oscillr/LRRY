@@ -7,6 +7,8 @@
 
 **Try it in your browser, no FM-1 needed:** <https://oscillr.github.io/LRRY/emu/>
 
+**Best with headphones:** L/RRY lives in stereo, and the sound moves around you.
+
 <p align="left"><img src="docs/lrry-deck.png" alt="L/RRY" width="720"></p>
 
 > **This is a beta.** L/RRY works and plays clean on the author's unit, but it is new. Expect rough edges and tell us what you find. Until version 1.0 the way patches and settings are saved may change, and a backup made with one version may not restore in the next.
