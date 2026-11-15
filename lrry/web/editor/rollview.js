@@ -48,7 +48,7 @@ export function createRollView(app, p, opts) {
   const selScale = h("select", { "aria-label": "Highlight: scale", title: "Highlight only (see ROOT)", onchange: () => { scale = +selScale.value; saveScale(); paintRows(); } }, R.SCALES.map(([n], i) => h("option", { value: i, text: n })));
   selRoot.value = root; selScale.value = scale;
   const bZoomOut = btn("-", "Zoom out: narrower steps", () => setZoom(zoom / 1.25), "zb"), bZoomIn = btn("+", "Zoom in: wider steps", () => setZoom(zoom * 1.25), "zb");
-  const bExpand = opts.onExpand ? btn("ROLL", "Open the piano roll across the whole window (both parts)", () => opts.onExpand(p), "ghost small") : null;
+  const bExpand = opts.onExpand ? btn("ROLL", "Open the piano roll across the whole window", () => opts.onExpand(p), "ghost small") : null;
   const bClose = opts.onClose ? btn("Close", "Back to the editor (Esc). Edits go to the unit at once unless Send live is off.", () => opts.onClose(), "ghost small") : null;
   const tools = h("div", { class: "rolltools" }, bExpand, bClose,
     h("span", { class: "tg", role: "group", "aria-label": "Send" }, liveLab, bSend, bRevert, pend),

@@ -1,7 +1,7 @@
 # Notice
 
 **L/RRY**<br>
-**MultiMorphing Bitimbral Synthesizer**<br>
+**Stereo-Field Morphing Synthesizer**<br>
 **by OSCILL/R**
 
 L/RRY is free, open-source firmware for the M-VAVE FM-1. Source: <https://github.com/oscillr/LRRY>.

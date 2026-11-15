@@ -220,7 +220,7 @@ function bypassButton(key) {
     app.refresh();
   });
   const upd = () => {
-    const u = app.unit, on = state(), has = !!u?.hasBypass, name = sp.spec?.label ?? "every effect of both parts and the shared stages";
+    const u = app.unit, on = state(), has = !!u?.hasBypass, name = sp.spec?.label ?? "every effect and the shared stages";
     b.hidden = !has; b.setAttribute("aria-pressed", String(on)); b.classList.toggle("on", on);
     box?.classList.toggle("bypassed", on && has && !sp.dry);
     b.title = (on ? `${name}: bypassed. ` : `Takes ${name} out of the sound for now (${sp.dry ? "every effect is skipped" : bypassWhat(sp.spec)}). `) + "Only for trying a sound: nothing saved changes, it is not saved with the patch and it ends when a sound loads or the unit is switched off." + (on ? " Press to bring it back." : "");

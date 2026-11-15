@@ -136,7 +136,7 @@ def main():
             '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
             "<title>L/RRY emulator</title>"
             '<body style="font:16px/1.6 -apple-system,Helvetica,Arial,sans-serif;max-width:600px;margin:48px auto;padding:0 16px">'
-            "<h1>L/RRY</h1><p>MultiMorphing Bitimbral Synthesizer<br>by OSCILL/R</p>"
+            "<h1>L/RRY</h1><p>Stereo-Field Morphing Synthesizer<br>by OSCILL/R</p>"
             "<p><b>The browser emulator is not attached yet.</b> It appears here when a release carries it.</p>"
             '<p><a href="../">Back</a> · <a href="https://github.com/oscillr/LRRY/releases">Releases</a> · '
             '<a href="https://github.com/oscillr/LRRY#try-it">Build it yourself</a></p></body>\n', encoding="utf-8")

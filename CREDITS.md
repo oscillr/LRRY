@@ -1,13 +1,13 @@
 # Credits
 
 **L/RRY**<br>
-**MultiMorphing Bitimbral Synthesizer**<br>
+**Stereo-Field Morphing Synthesizer**<br>
 **by OSCILL/R**
 
 Thank you. Each line names the source, the link, the licence and what L/RRY uses. The same list, with the exact files, is in [NOTICE.md](NOTICE.md) and [lrry/LICENSING.md](lrry/LICENSING.md). L/RRY itself is GPL-3.0-only.
 
 **The base**
-- **DUELL** by OSCILL/R, <https://github.com/oscillr/DUELL>, GPL-3.0. The origin of L/RRY: L/RRY is the DUELL firmware under a new name (this is the one place the old name stays).
+- **DUELL** by OSCILL/R, <https://github.com/oscillr/DUELL>, GPL-3.0. The origin of L/RRY: L/RRY is built on the DUELL firmware (same author).
 - **Felucca** by Leo Kuroshita (@kurogedelic), Hügelton Instruments, <https://github.com/hugelton/Felucca>, GPL-3.0. L/RRY is a modified version of it.
 
 **Ideas and code that came into L/RRY**

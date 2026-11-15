@@ -43,7 +43,7 @@ export const GROUPS = [
   { key: "patterns", label: "Pattern slots", ids: [21, 22, 23], caps: CAPS_MULTI_PATTERN },
   { key: "wavetables", label: "User wavetables", ids: [24, 25, 26], caps: CAPS_WAVETABLES },
   { key: "settings", label: "Settings", ids: [1], caps: 0 },
-  { key: "music", label: "Current music (both parts)", ids: [0], caps: 0 },
+  { key: "music", label: "Current music", ids: [0], caps: 0 },
 ];
 export const LRRY_IDS = [0, 1, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26];   // the objects other than the patches
 export const RESTORE_ORDER = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 1, 0];   // after the patches (by slot); live music last

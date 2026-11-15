@@ -1,6 +1,6 @@
 # Felucca
 
-> **L/RRY note.** This is Felucca's README, kept as it was; parts of it no longer describe L/RRY. L/RRY differs: two parts instead of four tracks; ten engines (ANALOG, PHASE, LOFI, VOICE, TRIO, WHEEL, PHYSICAL, NOISE, FM6, WAVE), as SAMPLE, GRAIN and SLICE are removed with their samples and the user sample slots (0.2.9); hold FX opens PERFORM instead of the FX layer; MOMENTARY is gone; the quick edit layers are hold EDIT, LFO, ENV, ARP and GLO (SEL held: the scale layer); REC arms recording on the sequencer pages and is the HOLD switch on the others; PLAY/STOP is green when stopped and red when playing; GLO's pages are GLO (mutes and levels), TEMPO, SIDECHAIN, BASS MONO, MIDI, MODULES and MIDI LEARN. For L/RRY see [../docs/QUICKSTART.md](../docs/QUICKSTART.md) and [../SPEC.md](../SPEC.md).
+> **L/RRY note.** This is Felucca's README, kept as it was for credit; it describes Felucca, not L/RRY. L/RRY is a different instrument: one part with a stereo voice (two oscillators, SUB, NOISE, RING, MULTI FILTER and TWIN FILTER, DIRT A and DIRT B, each with its own pan) and MORPH. For L/RRY read [../README.md](../README.md) and [../SPEC.md](../SPEC.md).
 >
 > **Saves may change before version 1.0.** Until the 1.0 release, the way patches, multis, settings and everything else are saved may change. Saves may stop loading between versions, and a backup made with one version may not restore in the next. Do not rely on them yet.
 
